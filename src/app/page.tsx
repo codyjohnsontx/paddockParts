@@ -1,24 +1,7 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
-  AlertTriangle,
-  Bike as BikeIcon,
-  CheckCircle2,
-  CircleDot,
-  ClipboardList,
-  Handshake,
-  LifeBuoy,
-  MapPin,
-  Package,
-  Plus,
-  Search,
-  ShieldAlert,
-  Users,
-} from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
-import clsx from "clsx";
-import {
-  crashZones,
   currentUser,
   demoBikes,
   demoCheckIns,
@@ -29,911 +12,478 @@ import {
   demoSpares,
   inspectionChecklists,
 } from "@/lib/data";
-import { findPartMatches } from "@/lib/matching";
-import { inferSafetyCategory, safetyCopy } from "@/lib/safety";
+import { DEMO_SESSION } from "@/lib/demo-session";
+import { Phone } from "@/components/shell";
+import type { Tab } from "@/components/ui";
 import type {
   Bike,
   EventCheckIn,
+  InstalledPart,
   PartRequest,
   RequestResponse,
-  SafetyCategory,
-  Side,
   SparePart,
+  Urgency,
 } from "@/lib/types";
+import { inferSafetyCategory } from "@/lib/safety";
+import {
+  ScreenTrackHome,
+  ScreenRequestsFeed,
+  ScreenRequestDetail,
+} from "@/components/screens/track";
+import {
+  ScreenEmergencyHome,
+  ScreenZonePicker,
+  ScreenChecklist,
+  ScreenRecovery,
+  ScreenPostRequest,
+} from "@/components/screens/emergency";
+import {
+  ScreenGarageList,
+  ScreenBikeProfile,
+  ScreenSparesList,
+  ScreenAddSpare,
+  ScreenAddBike,
+  type NewSpareDraft,
+  type NewBikeDraft,
+} from "@/components/screens/garage-spares";
 
-type Tab = "garage" | "spares" | "track" | "emergency";
-
-const tabs: { id: Tab; label: string; icon: typeof BikeIcon }[] = [
-  { id: "garage", label: "Garage", icon: BikeIcon },
-  { id: "spares", label: "Spares", icon: Package },
-  { id: "track", label: "Track", icon: MapPin },
-  { id: "emergency", label: "Emergency", icon: LifeBuoy },
-];
-
-const categories = [
-  "clip on",
-  "brake lever",
-  "clutch lever",
-  "rearset peg",
-  "toe peg",
-  "shift rod",
-  "throttle tube",
-  "dzus fastener",
-  "fairing bracket",
-  "reservoir bracket",
-  "master link",
-  "hardware",
-  "slider puck",
-  "case cover bolt",
-];
-
-const sides: Side[] = ["left", "right", "front", "rear", "universal", "unknown"];
-
-const formatTags = (tags: string[]) => tags.slice(0, 4).join(" / ");
+// ─────────────────────────────────────────────────────────────
+// Per-tab navigation discriminators
+// ─────────────────────────────────────────────────────────────
+type GarageView = { kind: "list" } | { kind: "bike"; bikeId: string } | { kind: "add" };
+type SparesView = { kind: "list" } | { kind: "add" };
+type TrackView = { kind: "home" } | { kind: "feed" } | { kind: "detail"; requestId: string };
+type EmergencyView =
+  | { kind: "home" }
+  | { kind: "zone" }
+  | { kind: "checklist" }
+  | { kind: "recovery" }
+  | { kind: "post" };
 
 const makeId = (prefix: string) => `${prefix}-${Date.now().toString(36)}`;
 
+function capFirst(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function sideFromZone(zone: string): "left" | "right" | "unknown" {
+  if (zone.includes("right")) return "right";
+  if (zone.includes("left")) return "left";
+  return "unknown";
+}
+
+// Build a clean title from the crash flow: "Clip on · right side"
+function titleFromCrash(zone: string, parts: string[]): string {
+  const part = parts[0] ?? "";
+  const side = sideFromZone(zone);
+  const base = capFirst(part);
+  if (side === "unknown") return base;
+  return `${base} · ${side} side`;
+}
+
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>("emergency");
+  // ────────── Data ──────────
   const [bikes, setBikes] = useState<Bike[]>(demoBikes);
   const [spares, setSpares] = useState<SparePart[]>(demoSpares);
+  const [installed] = useState<InstalledPart[]>(demoInstalledParts);
   const [requests, setRequests] = useState<PartRequest[]>(demoRequests);
   const [responses, setResponses] = useState<RequestResponse[]>(demoResponses);
-  const [checkIns, setCheckIns] = useState<EventCheckIn[]>(demoCheckIns);
-  const [search, setSearch] = useState("");
-  const [selectedZone, setSelectedZone] = useState("right side");
-  const [brokenParts, setBrokenParts] = useState<string[]>(["clip on"]);
-  const [activeRequestId, setActiveRequestId] = useState(demoRequests[0]?.id);
+  const [checkIns] = useState<EventCheckIn[]>(demoCheckIns);
 
-  const currentBike = bikes[0];
-  const currentCheckIn = checkIns.find((checkIn) => checkIn.userId === currentUser.id);
+  // ────────── Navigation ──────────
+  const [activeTab, setActiveTab] = useState<Tab>("track");
+  const [garage, setGarage] = useState<GarageView>({ kind: "list" });
+  const [sparesView, setSparesView] = useState<SparesView>({ kind: "list" });
+  const [track, setTrack] = useState<TrackView>({ kind: "home" });
+  const [emergency, setEmergency] = useState<EmergencyView>({ kind: "home" });
 
-  const eventSpares = spares.filter(
-    (part) =>
-      part.visibleAtEvents.includes(demoEvent.id) &&
-      part.visibility === "public_at_event" &&
-      part.availabilityStatus !== "private",
+  // ────────── Emergency flow state ──────────
+  const [selectedZone, setSelectedZone] = useState<string>("right side");
+  const [brokenParts, setBrokenParts] = useState<string[]>(["clip on", "master cylinder", "bar end"]);
+  const [postUrgency, setPostUrgency] = useState<Urgency>("session_critical");
+  const [postOfferType, setPostOfferType] = useState<PartRequest["requestType"]>("buy");
+  const [postNotes, setPostNotes] = useState<string>(
+    "Lowsided into T6. Bar bent, bar end gouged. Will buy outright or swap a left tube I'm not using.",
   );
 
-  const filteredSpares = eventSpares.filter((part) => {
-    const haystack = [
-      part.name,
-      part.category,
-      part.brand,
-      part.ownerName,
-      ...part.compatibilityTags,
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(search.toLowerCase());
-  });
+  // ────────── Feed state ──────────
+  const [feedFilter, setFeedFilter] = useState<"all" | Urgency>("all");
+  const [feedSearch, setFeedSearch] = useState("");
 
-  const primaryBrokenPart = brokenParts[0] ?? "";
-  const emergencySafety = inferSafetyCategory(primaryBrokenPart);
-  const emergencyMatches = useMemo(
+  // ────────── Spares state ──────────
+  const [spareSearch, setSpareSearch] = useState("");
+  const [spareFilter, setSpareFilter] = useState("ALL");
+
+  // ────────── Derived ──────────
+  const primaryBike = bikes[0];
+  const currentCheckIn = checkIns.find((c) => c.userId === currentUser.id);
+
+  const installedByBike = useMemo(() => {
+    const map = new Map<string, InstalledPart[]>();
+    for (const p of installed) {
+      const arr = map.get(p.bikeId) ?? [];
+      arr.push(p);
+      map.set(p.bikeId, arr);
+    }
+    return map;
+  }, [installed]);
+
+  const responsesByRequest = useMemo(() => {
+    const map = new Map<string, RequestResponse[]>();
+    for (const r of responses) {
+      const arr = map.get(r.requestId) ?? [];
+      arr.push(r);
+      map.set(r.requestId, arr);
+    }
+    return map;
+  }, [responses]);
+  const responseCountByRequest = useMemo(() => {
+    const m = new Map<string, number>();
+    responsesByRequest.forEach((v, k) => m.set(k, v.length));
+    return m;
+  }, [responsesByRequest]);
+
+  const eventVisibleSpares = useMemo(
     () =>
-      findPartMatches(
-        {
-          partNeeded: primaryBrokenPart,
-          category: primaryBrokenPart,
-          side: selectedZone.includes("right")
-            ? "right"
-            : selectedZone.includes("left")
-              ? "left"
-              : "unknown",
-          tags: [
-            primaryBrokenPart,
-            "yamaha-r6",
-            "2020-r6",
-            ...(primaryBrokenPart.includes("clip") ? ["50mm", "woodcraft"] : []),
-          ],
-        },
-        eventSpares,
+      spares.filter(
+        (s) =>
+          s.visibility === "public_at_event" &&
+          s.visibleAtEvents.includes(demoEvent.id),
       ),
-    [eventSpares, primaryBrokenPart, selectedZone],
+    [spares],
   );
 
-  function addBike(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const bike: Bike = {
-      id: makeId("bike"),
-      userId: currentUser.id,
-      year: Number(form.get("year")) || new Date().getFullYear(),
-      make: String(form.get("make") || ""),
-      model: String(form.get("model") || ""),
-      nickname: String(form.get("nickname") || ""),
-      useType: "track",
-      notes: String(form.get("notes") || ""),
-      photos: [],
-    };
-    setBikes((items) => [bike, ...items]);
-    event.currentTarget.reset();
-  }
+  const ridersHere = checkIns.length;
+  const openRequestsCount = requests.filter(
+    (r) => r.status === "open" || r.status === "pending",
+  ).length;
 
-  function addSpare(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const category = String(form.get("category") || "hardware");
-    const tags = String(form.get("tags") || "")
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-    const spare: SparePart = {
-      id: makeId("sp"),
-      userId: currentUser.id,
-      ownerName: currentUser.name,
-      name: String(form.get("name") || category),
-      category,
-      brand: String(form.get("brand") || ""),
-      quantity: Number(form.get("quantity")) || 1,
-      condition: String(form.get("condition") || "Track spare"),
-      side: String(form.get("side") || "universal") as Side,
-      compatibilityTags: tags.length ? tags : [category, "yamaha-r6"],
-      availabilityStatus: "lend",
-      notes: String(form.get("notes") || ""),
-      photos: [],
-      safetyCategory: inferSafetyCategory(category),
-      visibility: "public_at_event",
-      visibleAtEvents: [demoEvent.id],
-    };
-    setSpares((items) => [spare, ...items]);
-    event.currentTarget.reset();
-  }
-
-  function postEmergencyRequest() {
-    if (!primaryBrokenPart) return;
-
-    const request: PartRequest = {
+  // ────────── Actions ──────────
+  function postRequest(): string {
+    const newReq: PartRequest = {
       id: makeId("req"),
       eventId: demoEvent.id,
       userId: currentUser.id,
-      bikeId: currentBike.id,
-      title: `Need ${selectedZone} ${primaryBrokenPart}`,
-      partNeeded: primaryBrokenPart,
-      category: primaryBrokenPart,
-      urgency: "session_critical",
-      side: selectedZone.includes("right")
-        ? "right"
-        : selectedZone.includes("left")
-          ? "left"
-          : "unknown",
-      description: `Crashed at ${demoEvent.trackName}. Need help finding ${primaryBrokenPart}.`,
+      bikeId: primaryBike.id,
+      title: titleFromCrash(selectedZone, brokenParts),
+      partNeeded: brokenParts[0] ?? "",
+      category: brokenParts[0] ?? "",
+      urgency: postUrgency,
+      side: sideFromZone(selectedZone),
+      description: postNotes,
       photos: [],
-      compatibilityTags: ["yamaha-r6", primaryBrokenPart, "verify-before-riding"],
+      compatibilityTags: [
+        "Woodcraft",
+        "Vortex",
+        "Attack",
+        "50mm",
+        "M10x1.25",
+      ],
       status: "open",
-      requestType: "help",
+      requestType: postOfferType,
       createdAt: new Date().toISOString(),
     };
-
-    setRequests((items) => [request, ...items]);
-    setActiveRequestId(request.id);
-    setActiveTab("track");
+    setRequests((rs) => [newReq, ...rs]);
+    return newReq.id;
   }
 
-  function addResponse(requestId: string, responseType: RequestResponse["responseType"]) {
-    const response: RequestResponse = {
+  function addResponse(requestId: string, type: RequestResponse["responseType"]) {
+    const r: RequestResponse = {
       id: makeId("rr"),
       requestId,
       responderUserId: currentUser.id,
       responderName: currentUser.name,
       message:
-        responseType === "do_not_ride"
+        type === "do_not_ride"
           ? "Do not ride until this is inspected by a qualified person."
-          : "I can help check fitment in the paddock.",
-      responseType,
+          : type === "have_this"
+            ? "I have this — message me, I'm at P15."
+            : type === "may_fit"
+              ? "I might have something close — bring the broken part to my pit."
+              : type === "have_tools"
+                ? "I have tools and can help wrench."
+                : "Vendor at the trailer has one in stock.",
+      responseType: type,
       createdAt: new Date().toISOString(),
     };
-    setResponses((items) => [response, ...items]);
+    setResponses((rs) => [...rs, r]);
   }
 
-  function resolveRequest(requestId: string) {
-    setRequests((items) =>
-      items.map((request) =>
-        request.id === requestId
-          ? { ...request, status: "resolved", resolvedAt: new Date().toISOString() }
-          : request,
+  function addSpare(draft: NewSpareDraft) {
+    const newSpare: SparePart = {
+      id: makeId("sp"),
+      userId: currentUser.id,
+      ownerName: currentUser.name,
+      name: draft.name.trim(),
+      category: draft.category.trim(),
+      brand: draft.brand.trim(),
+      partNumber: draft.partNumber.trim() || undefined,
+      quantity: draft.quantity,
+      condition: draft.condition.trim(),
+      side: draft.side,
+      compatibilityTags: draft.families,
+      availabilityStatus: draft.availability,
+      notes: draft.notes.trim(),
+      photos: [],
+      safetyCategory: inferSafetyCategory(draft.category || draft.name),
+      visibility: draft.availability === "private" ? "private" : "public_at_event",
+      visibleAtEvents: draft.availability === "private" ? [] : [demoEvent.id],
+    };
+    setSpares((rs) => [newSpare, ...rs]);
+  }
+
+  function addBike(draft: NewBikeDraft) {
+    const newBike: Bike = {
+      id: makeId("bike"),
+      userId: currentUser.id,
+      year: draft.year,
+      make: draft.make.trim(),
+      model: draft.model.trim(),
+      nickname: draft.nickname.trim() || `${draft.year} ${draft.model}`.trim(),
+      useType: draft.useType,
+      notes: draft.notes.trim(),
+      photos: [],
+    };
+    setBikes((bs) => [...bs, newBike]);
+  }
+
+  function resolveRequest(id: string) {
+    setRequests((rs) =>
+      rs.map((r) =>
+        r.id === id ? { ...r, status: "resolved", resolvedAt: new Date().toISOString() } : r,
       ),
     );
   }
 
-  function toggleCheckIn() {
-    if (currentCheckIn) {
-      setCheckIns((items) => items.filter((checkIn) => checkIn.userId !== currentUser.id));
-      return;
-    }
-
-    setCheckIns((items) => [
-      {
-        id: makeId("ci"),
-        eventId: demoEvent.id,
-        userId: currentUser.id,
-        riderName: currentUser.name,
-        paddockLocation: "Tap to add paddock spot",
-        visibleInventoryEnabled: true,
-        checkedInAt: new Date().toISOString(),
-      },
-      ...items,
-    ]);
+  function ownerNameOf(userId: string): string {
+    if (userId === currentUser.id) return currentUser.name;
+    const ci = checkIns.find((c) => c.userId === userId);
+    return ci?.riderName ?? "Rider";
   }
 
-  return (
-    <main className="min-h-screen bg-[#0c0d0f] text-zinc-100">
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col border-x border-white/10 bg-[#111316]">
-        <header className="sticky top-0 z-20 border-b border-white/10 bg-[#111316]/95 px-4 py-4 backdrop-blur">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-300">
-                Paddock Parts
-              </p>
-              <h1 className="mt-1 text-xl font-semibold tracking-tight">
-                Save the session
-              </h1>
-            </div>
-            <button
-              onClick={() => setActiveTab("emergency")}
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-500 text-black shadow-lg shadow-orange-500/20"
-              aria-label="Open emergency crash flow"
-            >
-              <AlertTriangle size={22} />
-            </button>
-          </div>
-        </header>
-
-        <section className="flex-1 px-4 pb-28 pt-4">
-          {activeTab === "garage" && (
-            <GarageView bikes={bikes} onAddBike={addBike} />
-          )}
-
-          {activeTab === "spares" && (
-            <SparesView
-              spares={spares}
-              search={search}
-              setSearch={setSearch}
-              filteredSpares={filteredSpares}
-              onAddSpare={addSpare}
-            />
-          )}
-
-          {activeTab === "track" && (
-            <TrackView
-              checkIns={checkIns}
-              currentCheckIn={currentCheckIn}
-              eventSpares={filteredSpares}
-              requests={requests}
-              responses={responses}
-              activeRequestId={activeRequestId}
-              setActiveRequestId={setActiveRequestId}
-              onToggleCheckIn={toggleCheckIn}
-              onRespond={addResponse}
-              onResolve={resolveRequest}
-            />
-          )}
-
-          {activeTab === "emergency" && (
-            <EmergencyView
-              selectedZone={selectedZone}
-              setSelectedZone={setSelectedZone}
-              brokenParts={brokenParts}
-              setBrokenParts={setBrokenParts}
-              primaryBrokenPart={primaryBrokenPart}
-              emergencySafety={emergencySafety}
-              matches={emergencyMatches}
-              onPostRequest={postEmergencyRequest}
-            />
-          )}
-        </section>
-
-        <nav className="fixed bottom-0 left-1/2 z-30 grid w-full max-w-md -translate-x-1/2 grid-cols-4 border-t border-white/10 bg-[#111316]/95 px-2 pb-3 pt-2 backdrop-blur">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={clsx(
-                  "flex min-h-14 flex-col items-center justify-center gap-1 rounded-md text-[11px] font-medium transition",
-                  active ? "bg-white text-black" : "text-zinc-400 hover:bg-white/5 hover:text-white",
-                )}
-              >
-                <Icon size={19} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-    </main>
-  );
-}
-
-function GarageView({
-  bikes,
-  onAddBike,
-}: {
-  bikes: Bike[];
-  onAddBike: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <SectionIntro
-        icon={BikeIcon}
-        title="Garage"
-        body="Bike profiles, installed parts, notes, and fitment tags."
-      />
-
-      {bikes.map((bike) => (
-        <article key={bike.id} className="rounded-md border border-white/10 bg-white/[0.04] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-zinc-400">{bike.nickname}</p>
-              <h2 className="text-2xl font-semibold">
-                {bike.year} {bike.make} {bike.model}
-              </h2>
-            </div>
-            <StatusPill label={bike.useType} tone="neutral" />
-          </div>
-          <p className="mt-3 text-sm leading-6 text-zinc-300">{bike.notes}</p>
-          <div className="mt-4 space-y-2">
-            {demoInstalledParts
-              .filter((part) => part.bikeId === bike.id)
-              .map((part) => (
-                <PartRow
-                  key={part.id}
-                  name={part.name}
-                  meta={`${part.brand} / ${formatTags(part.compatibilityTags)}`}
-                  safety={part.safetyCategory}
-                />
-              ))}
-          </div>
-        </article>
-      ))}
-
-      <form onSubmit={onAddBike} className="rounded-md border border-white/10 bg-[#171a1f] p-4">
-        <h3 className="text-base font-semibold">Add bike</h3>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Input name="year" placeholder="Year" inputMode="numeric" />
-          <Input name="make" placeholder="Make" />
-          <Input name="model" placeholder="Model" />
-          <Input name="nickname" placeholder="Nickname" />
-        </div>
-        <textarea
-          name="notes"
-          placeholder="Notes"
-          className="mt-2 min-h-20 w-full rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm outline-none placeholder:text-zinc-500 focus:border-orange-300"
+  // ────────── Renderers per tab ──────────
+  // Render-time fallbacks: if a referenced bike/request was removed, show the
+  // parent list/feed directly. Lighter than driving navigation from an effect.
+  function renderGarage() {
+    if (garage.kind === "list") {
+      return (
+        <ScreenGarageList
+          bikes={bikes}
+          installedByBike={installedByBike}
+          primaryBikeId={primaryBike?.id}
+          atEventBikeId={primaryBike?.id}
+          onOpenBike={(id) => setGarage({ kind: "bike", bikeId: id })}
+          onAddBike={() => setGarage({ kind: "add" })}
+          recentParts={installed}
         />
-        <PrimaryButton icon={Plus}>Add bike</PrimaryButton>
-      </form>
-    </div>
-  );
-}
-
-function SparesView({
-  spares,
-  search,
-  setSearch,
-  filteredSpares,
-  onAddSpare,
-}: {
-  spares: SparePart[];
-  search: string;
-  setSearch: (value: string) => void;
-  filteredSpares: SparePart[];
-  onAddSpare: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      <SectionIntro
-        icon={Package}
-        title="Spares"
-        body={`${spares.length} parts cataloged. Public event parts become searchable when checked in.`}
-      />
-      <SearchBox value={search} onChange={setSearch} placeholder="Search parts, owners, tags" />
-
-      <form onSubmit={onAddSpare} className="rounded-md border border-white/10 bg-[#171a1f] p-4">
-        <h3 className="text-base font-semibold">Quick add spare</h3>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Input name="name" placeholder="Part name" />
-          <select name="category" className="input-select">
-            {categories.map((category) => (
-              <option key={category}>{category}</option>
-            ))}
-          </select>
-          <Input name="brand" placeholder="Brand" />
-          <Input name="quantity" placeholder="Qty" inputMode="numeric" />
-          <select name="side" className="input-select">
-            {sides.map((side) => (
-              <option key={side}>{side}</option>
-            ))}
-          </select>
-          <Input name="condition" placeholder="Condition" />
-        </div>
-        <Input name="tags" placeholder="Tags: 50mm, r6, woodcraft" className="mt-2" />
-        <textarea
-          name="notes"
-          placeholder="Owner notes, price, deposit, paddock location"
-          className="mt-2 min-h-20 w-full rounded-md border border-white/10 bg-black/20 px-3 py-3 text-sm outline-none placeholder:text-zinc-500 focus:border-orange-300"
+      );
+    }
+    if (garage.kind === "add") {
+      return (
+        <ScreenAddBike
+          onBack={() => setGarage({ kind: "list" })}
+          onSave={(draft) => {
+            addBike(draft);
+            setGarage({ kind: "list" });
+          }}
         />
-        <PrimaryButton icon={Plus}>Add public event spare</PrimaryButton>
-      </form>
+      );
+    }
+    const bike = bikes.find((b) => b.id === garage.bikeId);
+    if (!bike) return null;
+    return (
+      <ScreenBikeProfile
+        bike={bike}
+        installed={installedByBike.get(bike.id) ?? []}
+        onBack={() => setGarage({ kind: "list" })}
+      />
+    );
+  }
 
-      <div className="space-y-3">
-        {filteredSpares.map((part) => (
-          <SpareCard key={part.id} part={part} />
-        ))}
-      </div>
-    </div>
-  );
-}
+  function renderSpares() {
+    if (sparesView.kind === "list") {
+      return (
+        <ScreenSparesList
+          spares={spares}
+          search={spareSearch}
+          setSearch={setSpareSearch}
+          filter={spareFilter}
+          setFilter={setSpareFilter}
+          onAdd={() => setSparesView({ kind: "add" })}
+          visibleAtEventCount={eventVisibleSpares.length}
+        />
+      );
+    }
+    return (
+      <ScreenAddSpare
+        onBack={() => setSparesView({ kind: "list" })}
+        onSave={(draft) => {
+          addSpare(draft);
+          setSparesView({ kind: "list" });
+        }}
+      />
+    );
+  }
 
-function TrackView({
-  checkIns,
-  currentCheckIn,
-  eventSpares,
-  requests,
-  responses,
-  activeRequestId,
-  setActiveRequestId,
-  onToggleCheckIn,
-  onRespond,
-  onResolve,
-}: {
-  checkIns: EventCheckIn[];
-  currentCheckIn?: EventCheckIn;
-  eventSpares: SparePart[];
-  requests: PartRequest[];
-  responses: RequestResponse[];
-  activeRequestId?: string;
-  setActiveRequestId: (id: string) => void;
-  onToggleCheckIn: () => void;
-  onRespond: (requestId: string, responseType: RequestResponse["responseType"]) => void;
-  onResolve: (requestId: string) => void;
-}) {
-  const activeRequest = requests.find((request) => request.id === activeRequestId) ?? requests[0];
+  function renderTrack() {
+    if (track.kind === "home") {
+      return (
+        <ScreenTrackHome
+          event={demoEvent}
+          checkIns={checkIns}
+          requests={requests}
+          responsesByRequest={responsesByRequest}
+          riderName={currentUser.name}
+          paddockLocation={currentCheckIn?.paddockLocation}
+          ridersHere={ridersHere}
+          sparesCount={eventVisibleSpares.length}
+          openRequestsCount={openRequestsCount}
+          onOpenRequest={(id) => setTrack({ kind: "detail", requestId: id })}
+          onOpenFeed={() => setTrack({ kind: "feed" })}
+        />
+      );
+    }
+    if (track.kind === "feed") {
+      return (
+        <ScreenRequestsFeed
+          event={demoEvent}
+          checkIns={checkIns}
+          requests={requests}
+          responsesByRequest={responsesByRequest}
+          onBack={() => setTrack({ kind: "home" })}
+          onOpenRequest={(id) => setTrack({ kind: "detail", requestId: id })}
+          onNew={() => {
+            setActiveTab("emergency");
+            setEmergency({ kind: "post" });
+          }}
+          filter={feedFilter}
+          setFilter={setFeedFilter}
+          search={feedSearch}
+          setSearch={setFeedSearch}
+        />
+      );
+    }
+    // detail
+    const req = requests.find((r) => r.id === track.requestId);
+    if (!req) return null;
+    const replies = responsesByRequest.get(req.id) ?? [];
+    const ownerName = ownerNameOf(req.userId);
+    const paddockLoc = checkIns.find((c) => c.userId === req.userId)?.paddockLocation;
+    const bikeName =
+      req.userId === currentUser.id
+        ? `${primaryBike.year} ${primaryBike.make} ${primaryBike.model}`
+        : "2020 Yamaha R6";
+    return (
+      <ScreenRequestDetail
+        request={req}
+        responses={replies}
+        ownerName={ownerName}
+        paddockLocation={paddockLoc}
+        bikeName={bikeName}
+        onBack={() => setTrack({ kind: "feed" })}
+        onRespond={(rt) => addResponse(req.id, rt)}
+        onResolve={() => resolveRequest(req.id)}
+        ridersHere={ridersHere}
+        currentUserId={currentUser.id}
+      />
+    );
+  }
 
-  return (
-    <div className="space-y-4">
-      <section className="rounded-md border border-white/10 bg-white/[0.04] p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-300">
-              Current event
-            </p>
-            <h2 className="mt-1 text-2xl font-semibold">{demoEvent.trackName}</h2>
-            <p className="mt-1 text-sm text-zinc-400">
-              {demoEvent.organizer} / {demoEvent.location}
-            </p>
-          </div>
-          <StatusPill label={currentCheckIn ? "checked in" : "not in"} tone={currentCheckIn ? "good" : "warn"} />
-        </div>
-        <p className="mt-3 text-sm leading-6 text-zinc-300">{demoEvent.notes}</p>
-        <button
-          onClick={onToggleCheckIn}
-          className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-white text-sm font-semibold text-black"
-        >
-          <MapPin size={18} />
-          {currentCheckIn ? "Check out" : "Check in and share visible spares"}
-        </button>
-      </section>
-
-      <div className="grid grid-cols-3 gap-2">
-        <Metric label="Riders" value={checkIns.length} />
-        <Metric label="Parts" value={eventSpares.length} />
-        <Metric label="Open" value={requests.filter((request) => request.status === "open").length} />
-      </div>
-
-      <section className="space-y-3">
-        <h3 className="flex items-center gap-2 text-base font-semibold">
-          <ClipboardList size={18} />
-          Active requests
-        </h3>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {requests.map((request) => (
-            <button
-              key={request.id}
-              onClick={() => setActiveRequestId(request.id)}
-              className={clsx(
-                "min-w-56 rounded-md border p-3 text-left text-sm",
-                activeRequest?.id === request.id
-                  ? "border-orange-300 bg-orange-500/10"
-                  : "border-white/10 bg-white/[0.04]",
-              )}
-            >
-              <StatusPill label={request.urgency.replace("_", " ")} tone="warn" />
-              <p className="mt-2 font-semibold">{request.title}</p>
-              <p className="mt-1 text-xs text-zinc-400">{request.status}</p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {activeRequest && (
-        <section className="rounded-md border border-white/10 bg-[#171a1f] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-semibold">{activeRequest.title}</h3>
-              <p className="mt-1 text-sm text-zinc-400">{activeRequest.description}</p>
-            </div>
-            <SafetyBadge category={inferSafetyCategory(activeRequest.category)} />
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {activeRequest.compatibilityTags.map((tag) => (
-              <span key={tag} className="rounded-full bg-white/10 px-3 py-1 text-xs text-zinc-300">
-                {tag}
-              </span>
-            ))}
-          </div>
-          <div className="mt-4 space-y-2">
-            {responses
-              .filter((response) => response.requestId === activeRequest.id)
-              .map((response) => (
-                <div key={response.id} className="rounded-md bg-black/20 p-3">
-                  <p className="text-sm font-semibold">{response.responderName}</p>
-                  <p className="mt-1 text-sm text-zinc-300">{response.message}</p>
-                </div>
-              ))}
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <SmallButton onClick={() => onRespond(activeRequest.id, "have_this")}>
-              I have this
-            </SmallButton>
-            <SmallButton onClick={() => onRespond(activeRequest.id, "may_fit")}>
-              May fit
-            </SmallButton>
-            <SmallButton onClick={() => onRespond(activeRequest.id, "have_tools")}>
-              Have tools
-            </SmallButton>
-            <SmallButton onClick={() => onRespond(activeRequest.id, "do_not_ride")}>
-              Do not ride
-            </SmallButton>
-          </div>
-          {activeRequest.status !== "resolved" && (
-            <button
-              onClick={() => onResolve(activeRequest.id)}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-md border border-emerald-300/40 bg-emerald-500/10 text-sm font-semibold text-emerald-100"
-            >
-              <CheckCircle2 size={17} />
-              Mark resolved
-            </button>
-          )}
-        </section>
-      )}
-
-      <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-base font-semibold">
-          <Users size={18} />
-          Checked-in riders
-        </h3>
-        {checkIns.map((checkIn) => (
-          <div key={checkIn.id} className="flex items-center justify-between rounded-md bg-white/[0.04] p-3">
-            <div>
-              <p className="font-medium">{checkIn.riderName}</p>
-              <p className="text-sm text-zinc-400">{checkIn.paddockLocation}</p>
-            </div>
-            <StatusPill label={checkIn.visibleInventoryEnabled ? "visible" : "private"} tone="neutral" />
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function EmergencyView({
-  selectedZone,
-  setSelectedZone,
-  brokenParts,
-  setBrokenParts,
-  primaryBrokenPart,
-  emergencySafety,
-  matches,
-  onPostRequest,
-}: {
-  selectedZone: string;
-  setSelectedZone: (zone: string) => void;
-  brokenParts: string[];
-  setBrokenParts: (parts: string[]) => void;
-  primaryBrokenPart: string;
-  emergencySafety: SafetyCategory;
-  matches: ReturnType<typeof findPartMatches>;
-  onPostRequest: () => void;
-}) {
-  const checklist = inspectionChecklists[selectedZone] ?? inspectionChecklists.unknown;
-
-  function togglePart(part: string) {
-    setBrokenParts(
-      brokenParts.includes(part)
-        ? brokenParts.filter((item) => item !== part)
-        : [part, ...brokenParts],
+  function renderEmergency() {
+    if (emergency.kind === "home") {
+      return (
+        <ScreenEmergencyHome
+          ridersHere={ridersHere}
+          recentRequests={requests.filter((r) => r.status === "open" || r.status === "pending")}
+          responsesByRequest={responseCountByRequest}
+          onStart={() => setEmergency({ kind: "zone" })}
+          onPostQuick={() => setEmergency({ kind: "post" })}
+          onClose={() => setActiveTab("track")}
+          onOpenRequest={(id) => {
+            setActiveTab("track");
+            setTrack({ kind: "detail", requestId: id });
+          }}
+        />
+      );
+    }
+    if (emergency.kind === "zone") {
+      return (
+        <ScreenZonePicker
+          selected={selectedZone}
+          onSelect={(z) => {
+            setSelectedZone(z);
+            // reset parts when zone changes
+            const fromZone = inspectionChecklists[z];
+            if (fromZone) setBrokenParts((cur) => cur.filter((p) => fromZone.includes(p)));
+          }}
+          onBack={() => setEmergency({ kind: "home" })}
+          onContinue={() => setEmergency({ kind: "checklist" })}
+        />
+      );
+    }
+    if (emergency.kind === "checklist") {
+      const parts = inspectionChecklists[selectedZone] ?? inspectionChecklists.unknown;
+      return (
+        <ScreenChecklist
+          zone={selectedZone}
+          parts={parts}
+          selectedParts={brokenParts}
+          onTogglePart={(p) =>
+            setBrokenParts((cur) =>
+              cur.includes(p) ? cur.filter((x) => x !== p) : [p, ...cur],
+            )
+          }
+          onBack={() => setEmergency({ kind: "zone" })}
+          onContinue={() => setEmergency({ kind: "recovery" })}
+          minutesToSession={DEMO_SESSION.minutesToSession}
+        />
+      );
+    }
+    if (emergency.kind === "recovery") {
+      return (
+        <ScreenRecovery
+          zone={selectedZone}
+          brokenParts={brokenParts.length ? brokenParts : ["clip on"]}
+          spares={eventVisibleSpares.filter((s) => s.userId !== currentUser.id)}
+          bike={primaryBike}
+          installed={installedByBike.get(primaryBike.id) ?? []}
+          onBack={() => setEmergency({ kind: "checklist" })}
+          onPost={() => setEmergency({ kind: "post" })}
+          ridersHere={ridersHere}
+        />
+      );
+    }
+    // post
+    const tags = ["Woodcraft", "Vortex", "Attack", "50mm", "M10×1.25"];
+    return (
+      <ScreenPostRequest
+        partName={titleFromCrash(selectedZone, brokenParts.length ? brokenParts : ["clip on"])}
+        bikeName={`${primaryBike.year} ${primaryBike.make} ${primaryBike.model}`}
+        tags={tags}
+        onClose={() => setEmergency({ kind: "home" })}
+        onPost={() => {
+          const id = postRequest();
+          setActiveTab("track");
+          setTrack({ kind: "detail", requestId: id });
+          setEmergency({ kind: "home" });
+        }}
+        ridersHere={ridersHere}
+        urgency={postUrgency}
+        setUrgency={setPostUrgency}
+        offerType={postOfferType}
+        setOfferType={setPostOfferType}
+        notes={postNotes}
+        setNotes={setPostNotes}
+      />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-md border border-orange-300/30 bg-orange-500/10 p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-500 text-black">
-            <AlertTriangle size={23} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-200">
-              Crash flow
-            </p>
-            <h2 className="text-2xl font-semibold">What broke?</h2>
-          </div>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-zinc-200">
-          Pick the damage zone, tap broken parts, then find event spares or post a request.
-        </p>
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-sm font-semibold text-zinc-300">Damage zone</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {crashZones.map((zone) => (
-            <button
-              key={zone}
-              onClick={() => setSelectedZone(zone)}
-              className={clsx(
-                "min-h-12 rounded-md border px-3 text-left text-sm font-semibold capitalize",
-                selectedZone === zone
-                  ? "border-orange-300 bg-orange-500 text-black"
-                  : "border-white/10 bg-white/[0.04] text-zinc-200",
-              )}
-            >
-              {zone}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-sm font-semibold text-zinc-300">Inspection checklist</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {checklist.map((part) => {
-            const selected = brokenParts.includes(part);
-            return (
-              <button
-                key={part}
-                onClick={() => togglePart(part)}
-                className={clsx(
-                  "min-h-12 rounded-md border px-3 text-left text-sm capitalize",
-                  selected
-                    ? "border-white bg-white text-black"
-                    : "border-white/10 bg-[#171a1f] text-zinc-300",
-                )}
-              >
-                {part}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {primaryBrokenPart && (
-        <section className="rounded-md border border-white/10 bg-[#171a1f] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">
-                Recovery result
-              </p>
-              <h3 className="mt-1 text-xl font-semibold capitalize">{primaryBrokenPart}</h3>
-            </div>
-            <SafetyBadge category={emergencySafety} />
-          </div>
-          <SafetyPanel category={emergencySafety} />
-
-          <div className="mt-4 space-y-3">
-            {matches.length ? (
-              matches.map((match) => (
-                <article key={match.part.id} className="rounded-md bg-black/20 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{match.part.name}</p>
-                      <p className="mt-1 text-sm text-zinc-400">
-                        {match.part.ownerName} / {match.part.brand}
-                      </p>
-                    </div>
-                    <StatusPill label={match.confidence} tone={match.score >= 55 ? "good" : "warn"} />
-                  </div>
-                  <p className="mt-2 text-sm text-zinc-300">{match.reasons.join(" / ")}</p>
-                </article>
-              ))
-            ) : (
-              <div className="rounded-md border border-dashed border-white/15 p-4 text-sm text-zinc-400">
-                No visible match yet. Post a request to the paddock.
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={onPostRequest}
-            className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-orange-500 text-sm font-semibold text-black"
-          >
-            <Handshake size={18} />
-            Post request to paddock
-          </button>
-        </section>
-      )}
-    </div>
-  );
-}
-
-function SectionIntro({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof BikeIcon;
-  title: string;
-  body: string;
-}) {
-  return (
-    <section className="flex items-start gap-3">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white text-black">
-        <Icon size={20} />
-      </div>
-      <div>
-        <h2 className="text-2xl font-semibold">{title}</h2>
-        <p className="mt-1 text-sm leading-6 text-zinc-400">{body}</p>
-      </div>
-    </section>
-  );
-}
-
-function SpareCard({ part }: { part: SparePart }) {
-  return (
-    <article className="rounded-md border border-white/10 bg-white/[0.04] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-zinc-400">{part.ownerName}</p>
-          <h3 className="text-lg font-semibold">{part.name}</h3>
-        </div>
-        <SafetyBadge category={part.safetyCategory} />
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <StatusPill label={part.availabilityStatus.replace("_", " ")} tone="neutral" />
-        <StatusPill label={`${part.quantity} available`} tone="neutral" />
-        <StatusPill label={part.side} tone="neutral" />
-      </div>
-      <p className="mt-3 text-sm text-zinc-300">{part.notes}</p>
-      <p className="mt-2 text-xs text-zinc-500">{formatTags(part.compatibilityTags)}</p>
-    </article>
-  );
-}
-
-function PartRow({
-  name,
-  meta,
-  safety,
-}: {
-  name: string;
-  meta: string;
-  safety: SafetyCategory;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md bg-black/20 p-3">
-      <div>
-        <p className="font-medium">{name}</p>
-        <p className="text-xs text-zinc-400">{meta}</p>
-      </div>
-      <SafetyBadge category={safety} />
-    </div>
-  );
-}
-
-function SafetyBadge({ category }: { category: SafetyCategory }) {
-  const copy = safetyCopy[category];
-  return (
-    <span className={clsx("rounded-full border px-3 py-1 text-xs font-semibold", copy.tone)}>
-      {copy.label}
-    </span>
-  );
-}
-
-function SafetyPanel({ category }: { category: SafetyCategory }) {
-  const copy = safetyCopy[category];
-  return (
-    <div className={clsx("mt-4 rounded-md border p-3", copy.tone)}>
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        <ShieldAlert size={17} />
-        {copy.short}
-      </div>
-      <p className="mt-2 text-sm leading-6 text-zinc-200">{copy.detail}</p>
-    </div>
-  );
-}
-
-function SearchBox({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="flex h-12 items-center gap-2 rounded-md border border-white/10 bg-black/20 px-3">
-      <Search size={18} className="text-zinc-500" />
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-500"
-      />
-    </label>
-  );
-}
-
-function Input({
-  className,
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={clsx(
-        "h-11 w-full rounded-md border border-white/10 bg-black/20 px-3 text-sm outline-none placeholder:text-zinc-500 focus:border-orange-300",
-        className,
-      )}
-    />
-  );
-}
-
-function PrimaryButton({
-  children,
-  icon: Icon,
-}: {
-  children: React.ReactNode;
-  icon: typeof Plus;
-}) {
-  return (
-    <button className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-md bg-orange-500 text-sm font-semibold text-black">
-      <Icon size={18} />
-      {children}
-    </button>
-  );
-}
-
-function SmallButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="min-h-11 rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-zinc-100"
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatusPill({ label, tone }: { label: string; tone: "good" | "warn" | "neutral" }) {
-  return (
-    <span
-      className={clsx(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold capitalize",
-        tone === "good" && "border-emerald-400/30 bg-emerald-500/10 text-emerald-200",
-        tone === "warn" && "border-orange-400/30 bg-orange-500/10 text-orange-200",
-        tone === "neutral" && "border-white/10 bg-white/5 text-zinc-300",
-      )}
-    >
-      <CircleDot size={10} />
-      {label}
-    </span>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <p className="text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs uppercase tracking-[0.12em] text-zinc-500">{label}</p>
-    </div>
+    <Phone tab={activeTab} onTab={setActiveTab}>
+      {activeTab === "garage" && renderGarage()}
+      {activeTab === "spares" && renderSpares()}
+      {activeTab === "track" && renderTrack()}
+      {activeTab === "emergency" && renderEmergency()}
+    </Phone>
   );
 }

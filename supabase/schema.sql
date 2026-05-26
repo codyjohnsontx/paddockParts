@@ -160,7 +160,11 @@ create policy "events readable" on public.track_events for select using (true);
 create policy "events authenticated insert" on public.track_events for insert with check (auth.uid() is not null);
 
 create policy "checkins event readable" on public.event_check_ins for select using (
-  exists (select 1 from public.event_check_ins mine where mine.event_id = event_id and mine.user_id = auth.uid())
+  exists (
+    select 1 from public.event_check_ins mine
+    where mine.event_id = public.event_check_ins.event_id
+      and mine.user_id = auth.uid()
+  )
 );
 create policy "checkins own crud" on public.event_check_ins for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 

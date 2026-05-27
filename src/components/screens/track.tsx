@@ -7,6 +7,7 @@ import { useAgeAgo } from "@/lib/use-mounted";
 import { DEMO_NOW } from "@/lib/data";
 import { eventDayLabel, formatEventDateRange } from "@/lib/event-time";
 import { bikeLabelOf, ownerNameOf } from "@/lib/demo-helpers";
+import { inferSafetyCategory, safetyCopy } from "@/lib/safety";
 import {
   Avatar,
   BackBtn,
@@ -22,6 +23,7 @@ import {
   SearchBtn,
   SectionTitle,
   TopBar,
+  safetyLevel,
 } from "../ui";
 import { RequestCard, Reply, Stat } from "../cards";
 import { IconBolt, IconShield, IconNoRide, IconCheck, IconTools, IconMsg } from "../icons";
@@ -346,11 +348,13 @@ export function ScreenRequestDetail({
           </div>
         </div>
 
-        <SafetyCallout
-          level="red"
-          title="Critical safety part"
-          body="Verify pinch torque and bar-end weight before riding. Do not ride with cracked or repaired tube."
-        />
+        {(() => {
+          const sev = inferSafetyCategory(request.partNeeded || request.category);
+          const copy = safetyCopy[sev];
+          return (
+            <SafetyCallout level={safetyLevel(sev)} title={copy.label} body={copy.detail} />
+          );
+        })()}
       </div>
 
       <SectionTitle title={`Replies (${responses.length})`} />

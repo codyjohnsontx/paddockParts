@@ -43,6 +43,9 @@ export const KNOWN_PART_SAFETY: Record<string, SafetyCategory> = {
   "clip on": "red",
   "master cylinder": "source_only",
   "front brake line": "red",
+  rearset: "red",
+  rearsets: "red",
+  "rear set": "red",
   "right rearset": "red",
   "left rearset": "red",
   "brake pedal": "red",
@@ -81,7 +84,7 @@ const redCategories = [
   "axle",
   "triple",
   "frame",
-  "rearset plate",
+  "rearset",
 ];
 
 const yellowCategories = ["bracket", "spacer", "fairing", "stay", "reservoir"];

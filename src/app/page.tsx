@@ -25,6 +25,7 @@ import type {
   Urgency,
 } from "@/lib/types";
 import { inferSafetyCategory } from "@/lib/safety";
+import { bikeLabelOf } from "@/lib/demo-helpers";
 import {
   ScreenTrackHome,
   ScreenRequestsFeed,
@@ -66,16 +67,20 @@ function capFirst(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-function sideFromZone(zone: string): "left" | "right" | "unknown" {
-  if (zone.includes("right")) return "right";
-  if (zone.includes("left")) return "left";
+// Side derivation across multiple zones: if any zone names "right" → right,
+// any names "left" → left, both/neither → unknown.
+function sideFromZones(zones: string[]): "left" | "right" | "unknown" {
+  const hasRight = zones.some((z) => z.includes("right"));
+  const hasLeft = zones.some((z) => z.includes("left"));
+  if (hasRight && !hasLeft) return "right";
+  if (hasLeft && !hasRight) return "left";
   return "unknown";
 }
 
 // Build a clean title from the crash flow: "Clip on · right side"
-function titleFromCrash(zone: string, parts: string[]): string {
+function titleFromCrash(zones: string[], parts: string[]): string {
   const part = parts[0] ?? "";
-  const side = sideFromZone(zone);
+  const side = sideFromZones(zones);
   const base = capFirst(part);
   if (side === "unknown") return base;
   return `${base} · ${side} side`;
@@ -98,7 +103,7 @@ export default function Home() {
   const [emergency, setEmergency] = useState<EmergencyView>({ kind: "home" });
 
   // ────────── Emergency flow state ──────────
-  const [selectedZone, setSelectedZone] = useState<string>("right side");
+  const [selectedZones, setSelectedZones] = useState<string[]>(["right side"]);
   const [brokenParts, setBrokenParts] = useState<string[]>(["clip on", "master cylinder", "bar end"]);
   const [postUrgency, setPostUrgency] = useState<Urgency>("session_critical");
   const [postOfferType, setPostOfferType] = useState<PartRequest["requestType"]>("buy");
@@ -165,11 +170,11 @@ export default function Home() {
       eventId: demoEvent.id,
       userId: currentUser.id,
       bikeId: primaryBike.id,
-      title: titleFromCrash(selectedZone, brokenParts),
+      title: titleFromCrash(selectedZones, brokenParts),
       partNeeded: brokenParts[0] ?? "",
       category: brokenParts[0] ?? "",
       urgency: postUrgency,
-      side: sideFromZone(selectedZone),
+      side: sideFromZones(selectedZones),
       description: postNotes,
       photos: [],
       compatibilityTags: [
@@ -265,19 +270,18 @@ export default function Home() {
   // Render-time fallbacks: if a referenced bike/request was removed, show the
   // parent list/feed directly. Lighter than driving navigation from an effect.
   function renderGarage() {
-    if (garage.kind === "list") {
-      return (
-        <ScreenGarageList
-          bikes={bikes}
-          installedByBike={installedByBike}
-          primaryBikeId={primaryBike?.id}
-          atEventBikeId={primaryBike?.id}
-          onOpenBike={(id) => setGarage({ kind: "bike", bikeId: id })}
-          onAddBike={() => setGarage({ kind: "add" })}
-          recentParts={installed}
-        />
-      );
-    }
+    const listScreen = (
+      <ScreenGarageList
+        bikes={bikes}
+        installedByBike={installedByBike}
+        primaryBikeId={primaryBike?.id}
+        atEventBikeId={primaryBike?.id}
+        onOpenBike={(id) => setGarage({ kind: "bike", bikeId: id })}
+        onAddBike={() => setGarage({ kind: "add" })}
+        recentParts={installed}
+      />
+    );
+    if (garage.kind === "list") return listScreen;
     if (garage.kind === "add") {
       return (
         <ScreenAddBike
@@ -290,7 +294,7 @@ export default function Home() {
       );
     }
     const bike = bikes.find((b) => b.id === garage.bikeId);
-    if (!bike) return null;
+    if (!bike) return listScreen;
     return (
       <ScreenBikeProfile
         bike={bike}
@@ -343,36 +347,35 @@ export default function Home() {
         />
       );
     }
-    if (track.kind === "feed") {
-      return (
-        <ScreenRequestsFeed
-          event={demoEvent}
-          checkIns={checkIns}
-          requests={requests}
-          responsesByRequest={responsesByRequest}
-          onBack={() => setTrack({ kind: "home" })}
-          onOpenRequest={(id) => setTrack({ kind: "detail", requestId: id })}
-          onNew={() => {
-            setActiveTab("emergency");
-            setEmergency({ kind: "post" });
-          }}
-          filter={feedFilter}
-          setFilter={setFeedFilter}
-          search={feedSearch}
-          setSearch={setFeedSearch}
-        />
-      );
-    }
+    const feedScreen = (
+      <ScreenRequestsFeed
+        event={demoEvent}
+        checkIns={checkIns}
+        requests={requests}
+        responsesByRequest={responsesByRequest}
+        onBack={() => setTrack({ kind: "home" })}
+        onOpenRequest={(id) => setTrack({ kind: "detail", requestId: id })}
+        onNew={() => {
+          setActiveTab("emergency");
+          setEmergency({ kind: "post" });
+        }}
+        filter={feedFilter}
+        setFilter={setFeedFilter}
+        search={feedSearch}
+        setSearch={setFeedSearch}
+      />
+    );
+    if (track.kind === "feed") return feedScreen;
     // detail
     const req = requests.find((r) => r.id === track.requestId);
-    if (!req) return null;
+    if (!req) return feedScreen;
     const replies = responsesByRequest.get(req.id) ?? [];
     const ownerName = ownerNameOf(req.userId);
     const paddockLoc = checkIns.find((c) => c.userId === req.userId)?.paddockLocation;
     const bikeName =
-      req.userId === currentUser.id
+      req.userId === currentUser.id && primaryBike
         ? `${primaryBike.year} ${primaryBike.make} ${primaryBike.model}`
-        : "2020 Yamaha R6";
+        : bikeLabelOf(req.userId);
     return (
       <ScreenRequestDetail
         request={req}
@@ -390,6 +393,28 @@ export default function Home() {
   }
 
   function renderEmergency() {
+    // Crash flow assumes a bike exists. If the garage is empty, route the user
+    // there to add one before they can post a request.
+    if (!primaryBike) {
+      return (
+        <div className="flex flex-col items-center gap-3 px-6 pt-16 text-center">
+          <div className="pp-h2">Add a bike first</div>
+          <div className="pp-meta max-w-[260px]">
+            The crash flow needs a bike to match parts against. Add one in the Garage to continue.
+          </div>
+          <button
+            type="button"
+            className="pp-btn pp-btn-primary pp-btn-lg mt-3"
+            onClick={() => {
+              setActiveTab("garage");
+              setGarage({ kind: "add" });
+            }}
+          >
+            Go to Garage
+          </button>
+        </div>
+      );
+    }
     if (emergency.kind === "home") {
       return (
         <ScreenEmergencyHome
@@ -409,23 +434,38 @@ export default function Home() {
     if (emergency.kind === "zone") {
       return (
         <ScreenZonePicker
-          selected={selectedZone}
-          onSelect={(z) => {
-            setSelectedZone(z);
-            // reset parts when zone changes
-            const fromZone = inspectionChecklists[z];
-            if (fromZone) setBrokenParts((cur) => cur.filter((p) => fromZone.includes(p)));
+          selected={selectedZones}
+          onToggle={(z) => {
+            setSelectedZones((cur) =>
+              cur.includes(z) ? cur.filter((x) => x !== z) : [...cur, z],
+            );
+            // Drop any selected parts that no longer belong to any selected zone.
+            setBrokenParts((cur) => {
+              const next = selectedZones.includes(z)
+                ? selectedZones.filter((x) => x !== z)
+                : [...selectedZones, z];
+              const allowed = new Set(next.flatMap((zz) => inspectionChecklists[zz] ?? []));
+              return cur.filter((p) => allowed.has(p));
+            });
           }}
           onBack={() => setEmergency({ kind: "home" })}
           onContinue={() => setEmergency({ kind: "checklist" })}
         />
       );
     }
+    const zoneLabel = selectedZones.length === 0
+      ? "unknown"
+      : selectedZones.length === 1
+        ? selectedZones[0]
+        : `${selectedZones.length} zones`;
+    const checklistParts = Array.from(
+      new Set(selectedZones.flatMap((z) => inspectionChecklists[z] ?? [])),
+    );
     if (emergency.kind === "checklist") {
-      const parts = inspectionChecklists[selectedZone] ?? inspectionChecklists.unknown;
+      const parts = checklistParts.length ? checklistParts : inspectionChecklists.unknown;
       return (
         <ScreenChecklist
-          zone={selectedZone}
+          zone={zoneLabel}
           parts={parts}
           selectedParts={brokenParts}
           onTogglePart={(p) =>
@@ -442,7 +482,8 @@ export default function Home() {
     if (emergency.kind === "recovery") {
       return (
         <ScreenRecovery
-          zone={selectedZone}
+          zone={zoneLabel}
+          side={sideFromZones(selectedZones)}
           brokenParts={brokenParts.length ? brokenParts : ["clip on"]}
           spares={eventVisibleSpares.filter((s) => s.userId !== currentUser.id)}
           bike={primaryBike}
@@ -457,8 +498,8 @@ export default function Home() {
     const tags = ["Woodcraft", "Vortex", "Attack", "50mm", "M10×1.25"];
     return (
       <ScreenPostRequest
-        partName={titleFromCrash(selectedZone, brokenParts.length ? brokenParts : ["clip on"])}
-        bikeName={`${primaryBike.year} ${primaryBike.make} ${primaryBike.model}`}
+        partName={titleFromCrash(selectedZones, brokenParts.length ? brokenParts : ["clip on"])}
+        bikeName={primaryBike ? `${primaryBike.year} ${primaryBike.make} ${primaryBike.model}` : "Your bike"}
         tags={tags}
         onClose={() => setEmergency({ kind: "home" })}
         onPost={() => {

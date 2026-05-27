@@ -173,7 +173,6 @@ export function SectionTitle({
           type="button"
           onClick={onAction}
           className="pp-tiny text-text"
-          style={{ color: "var(--color-text)" }}
         >
           {action}
         </button>

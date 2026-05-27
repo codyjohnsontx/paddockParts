@@ -187,15 +187,16 @@ const ZONE_LABELS: ZoneDef[] = [
 
 export function ScreenZonePicker({
   selected,
-  onSelect,
+  onToggle,
   onBack,
   onContinue,
 }: {
-  selected: string;
-  onSelect: (zone: string) => void;
+  selected: string[];
+  onToggle: (zone: string) => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
+  const count = selected.length;
   return (
     <>
       <TopBar
@@ -212,13 +213,14 @@ export function ScreenZonePicker({
 
       <div className="grid grid-cols-2 gap-2.5 px-4 pt-3.5">
         {ZONE_LABELS.map((z) => {
-          const on = z.key === selected;
+          const on = selected.includes(z.key);
           return (
             <button
               key={z.key}
               type="button"
-              onClick={() => onSelect(z.key)}
+              onClick={() => onToggle(z.key)}
               className={clsx("pp-zone", on && "pp-zone-on")}
+              aria-pressed={on}
             >
               <div className="flex items-start justify-between">
                 <ZoneGlyph zone={z.key} on={on} />
@@ -251,15 +253,19 @@ export function ScreenZonePicker({
       <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
         <div className="flex items-center gap-2.5">
           <div className="flex-1">
-            <div className="pp-eyebrow">{selected ? "1 ZONE SELECTED" : "TAP A ZONE"}</div>
-            <div className="pp-mono mt-0.5 text-[12px] uppercase text-text">{selected}</div>
+            <div className="pp-eyebrow">
+              {count === 0 ? "TAP A ZONE" : `${count} ZONE${count > 1 ? "S" : ""} SELECTED`}
+            </div>
+            <div className="pp-mono mt-0.5 text-[12px] uppercase text-text truncate">
+              {selected.join(" · ")}
+            </div>
           </div>
           <button
             type="button"
             onClick={onContinue}
-            disabled={!selected}
+            disabled={count === 0}
             className="pp-btn pp-btn-primary pp-btn-lg"
-            style={{ paddingInline: 22, opacity: selected ? 1 : 0.4 }}
+            style={{ paddingInline: 22, opacity: count === 0 ? 0.4 : 1 }}
           >
             Continue <IconArrowRight size={18} />
           </button>
@@ -511,6 +517,7 @@ export function ScreenChecklist({
 // ─────────────────────────────────────────────────────────────
 export function ScreenRecovery({
   zone,
+  side,
   brokenParts,
   spares,
   bike,
@@ -520,6 +527,7 @@ export function ScreenRecovery({
   ridersHere,
 }: {
   zone: string;
+  side: Side;
   brokenParts: string[];
   spares: SparePart[];
   bike: Bike;
@@ -528,7 +536,6 @@ export function ScreenRecovery({
   onPost: () => void;
   ridersHere: number;
 }) {
-  const side: Side = zone.includes("right") ? "right" : zone.includes("left") ? "left" : "unknown";
 
   // Bike-derived tags so matching favors the user's actual bike.
   const bikeTags = useMemo(() => {

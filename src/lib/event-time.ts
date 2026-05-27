@@ -15,24 +15,29 @@ function dayDiff(a: Date, b: Date): number {
   return Math.floor(ms / (24 * 60 * 60 * 1000));
 }
 
+// Truncate to 00:00 UTC so day comparisons aren't fooled by intra-day hours.
+function toUTCDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
 /**
- * "DAY 1/2" while the event is live, "DAY OVER" once past endDate,
+ * "DAY 1/2" while the event is live, "EVENT OVER" once past endDate,
  * "STARTS IN Nd" while still upcoming.
  */
 export function eventDayLabel(event: TrackEvent, nowMs: number): string {
   const start = parseISODate(event.startDate);
   const end = parseISODate(event.endDate);
-  const now = new Date(nowMs);
+  const nowDay = toUTCDay(new Date(nowMs));
   const total = dayDiff(end, start) + 1;
 
-  if (now < start) {
-    const days = dayDiff(start, now);
+  if (nowDay < start) {
+    const days = dayDiff(start, nowDay);
     return days === 0 ? "STARTS TODAY" : `STARTS IN ${days}D`;
   }
-  if (now > new Date(end.getTime() + 24 * 60 * 60 * 1000 - 1)) {
+  if (nowDay > end) {
     return "EVENT OVER";
   }
-  const current = dayDiff(now, start) + 1;
+  const current = dayDiff(nowDay, start) + 1;
   return `DAY ${current}/${total}`;
 }
 

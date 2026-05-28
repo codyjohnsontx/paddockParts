@@ -44,7 +44,6 @@ import {
 // 1. EMERGENCY HOME — "I crashed"
 // ─────────────────────────────────────────────────────────────
 export function ScreenEmergencyHome({
-  ridersHere,
   recentRequests,
   responsesByRequest,
   onStart,
@@ -52,7 +51,6 @@ export function ScreenEmergencyHome({
   onClose,
   onOpenRequest,
 }: {
-  ridersHere: number;
   recentRequests: PartRequest[];
   responsesByRequest: Map<string, number>;
   onStart: () => void;

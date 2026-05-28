@@ -427,9 +427,11 @@ const FAMILY_SUGGESTIONS = ["Woodcraft", "Vortex", "Attack", "Driven", "Brembo"]
 export function ScreenAddSpare({
   onBack,
   onSave,
+  saving = false,
 }: {
   onBack: () => void;
   onSave: (draft: NewSpareDraft) => void;
+  saving?: boolean;
 }) {
   const [draft, setDraft] = useState<NewSpareDraft>({
     name: "",
@@ -551,12 +553,23 @@ export function ScreenAddSpare({
       <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
         <button
           type="button"
-          onClick={() => canSave && onSave(draft)}
-          disabled={!canSave}
+          onClick={() => canSave && !saving && onSave(draft)}
+          disabled={!canSave || saving}
+          aria-busy={saving}
           className="pp-btn pp-btn-primary pp-btn-lg w-full"
-          style={{ opacity: canSave ? 1 : 0.4 }}
+          style={{ opacity: !canSave || saving ? 0.55 : 1 }}
         >
-          Save spare
+          {saving ? (
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+                aria-hidden
+              />
+              Saving…
+            </span>
+          ) : (
+            "Save spare"
+          )}
         </button>
       </div>
     </>

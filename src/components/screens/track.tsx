@@ -37,7 +37,6 @@ export function ScreenTrackHome({
   checkIns,
   requests,
   responsesByRequest,
-  riderName,
   paddockLocation,
   ridersHere,
   sparesCount,
@@ -49,7 +48,6 @@ export function ScreenTrackHome({
   checkIns: EventCheckIn[];
   requests: PartRequest[];
   responsesByRequest: Map<string, RequestResponse[]>;
-  riderName: string;
   paddockLocation?: string;
   ridersHere: number;
   sparesCount: number;
@@ -265,7 +263,6 @@ export function ScreenRequestDetail({
   onBack,
   onRespond,
   onResolve,
-  ridersHere,
   currentUserId,
 }: {
   request: PartRequest;
@@ -276,7 +273,6 @@ export function ScreenRequestDetail({
   onBack: () => void;
   onRespond: (rt: RequestResponse["responseType"]) => void;
   onResolve: () => void;
-  ridersHere: number;
   currentUserId: string;
 }) {
   const isOwner = request.userId === currentUserId;

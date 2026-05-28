@@ -157,26 +157,58 @@ export async function getInitialPayload() {
   const supabase = await createClient();
   if (!supabase) return demoPayload();
 
-  // Pull every entity in parallel. We accept the tradeoff of one extra
-  // round-trip per call vs. one big RPC — easier to reason about.
-  const [bikesRes, installedRes, sparesRes, eventsRes, checkInsRes, requestsRes, responsesRes] =
-    await Promise.all([
-      supabase.from("bikes").select("*"),
-      supabase.from("installed_parts").select("*"),
-      supabase.from("spare_parts").select("*"),
-      supabase.from("track_events").select("*").order("start_date", { ascending: false }).limit(1),
-      supabase.from("event_check_ins").select("*"),
-      supabase.from("part_requests").select("*").order("created_at", { ascending: false }),
-      supabase.from("request_responses").select("*"),
-    ]);
+  // Phase 1: bikes / installed / spares / active event run in parallel.
+  // We need the active event id before we can scope check-ins / requests.
+  const [bikesRes, installedRes, sparesRes, eventsRes] = await Promise.all([
+    supabase.from("bikes").select("*"),
+    supabase.from("installed_parts").select("*"),
+    supabase.from("spare_parts").select("*"),
+    supabase.from("track_events").select("*").order("start_date", { ascending: false }).limit(1),
+  ]);
 
-  // If any query errored OR all came back empty, treat it as "no data" and
-  // fall back. Don't half-fill — partial state is more confusing than demo.
+  const activeEventId = eventsRes.data?.[0]?.id ? String(eventsRes.data[0].id) : null;
+
+  // Phase 2: scope check-ins and requests to the active event; responses are
+  // scoped to those requests so we never pull the full history.
+  const [checkInsRes, requestsRes] = activeEventId
+    ? await Promise.all([
+        supabase.from("event_check_ins").select("*").eq("event_id", activeEventId),
+        supabase
+          .from("part_requests")
+          .select("*")
+          .eq("event_id", activeEventId)
+          .order("created_at", { ascending: false }),
+      ])
+    : [
+        { data: [] as Row[], error: null },
+        { data: [] as Row[], error: null },
+      ];
+
+  const requestIds = (requestsRes.data ?? []).map((r) => String(r.id));
+  const responsesRes = requestIds.length
+    ? await supabase.from("request_responses").select("*").in("request_id", requestIds)
+    : { data: [] as Row[], error: null };
+
+  // Bail to demo on ANY query error, or if every result set is empty.
+  // Don't half-fill — partial state is more confusing than demo.
+  const anyError = !!(
+    bikesRes.error ||
+    installedRes.error ||
+    sparesRes.error ||
+    eventsRes.error ||
+    checkInsRes.error ||
+    requestsRes.error ||
+    responsesRes.error
+  );
   const allEmpty =
     !bikesRes.data?.length &&
+    !installedRes.data?.length &&
     !sparesRes.data?.length &&
-    !eventsRes.data?.length;
-  if (bikesRes.error || sparesRes.error || eventsRes.error || allEmpty) {
+    !eventsRes.data?.length &&
+    !checkInsRes.data?.length &&
+    !requestsRes.data?.length &&
+    !responsesRes.data?.length;
+  if (anyError || allEmpty) {
     return demoPayload();
   }
 

@@ -22,8 +22,9 @@ const sideSchema = z.enum(["left", "right", "front", "rear", "universal", "unkno
 const availabilitySchema = z.enum(["lend", "sell", "trade", "emergency_only", "private"]);
 
 const newSpareSchema = z.object({
-  name: z.string().min(2, "Name needs 2+ characters"),
-  category: z.string().min(2, "Category needs 2+ characters"),
+  // Trim first so whitespace-only strings fail the length check.
+  name: z.string().trim().min(2, "Name needs 2+ characters"),
+  category: z.string().trim().min(2, "Category needs 2+ characters"),
   brand: z.string().default(""),
   partNumber: z.string().optional(),
   side: sideSchema.default("universal"),

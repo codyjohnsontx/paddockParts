@@ -243,7 +243,7 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
     };
     setSpares((rs) => [newSpare, ...rs]);
     startSavingSpare(async () => {
-      await addSpareFromDraft({
+      const result = await addSpareFromDraft({
         name: draft.name,
         category: draft.category,
         brand: draft.brand,
@@ -256,6 +256,15 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
         notes: draft.notes,
         eventId: event.id,
       });
+      // ok=true with persisted=false is a deliberate local-only fallback
+      // (no Supabase env / unauthenticated) — keep the optimistic row.
+      if (!result.ok) {
+        setSpares((rs) => rs.filter((s) => s.id !== newSpare.id));
+        // Surface the failure; UI doesn't have a toast layer yet, so log it
+        // so it shows in the dev console / server logs.
+        console.error("addSpareFromDraft failed:", result.message);
+        return;
+      }
       onDone();
     });
   }

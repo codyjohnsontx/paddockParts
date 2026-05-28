@@ -34,6 +34,45 @@ export const safetyCopy: Record<
   },
 };
 
+// Exact-name overrides — checked first so we don't get fooled by keyword overlap.
+// Add a part here when the heuristic gets it wrong.
+export const KNOWN_PART_SAFETY: Record<string, SafetyCategory> = {
+  "brake lever": "red",
+  "throttle tube": "yellow",
+  "bar end": "green",
+  "clip on": "red",
+  "master cylinder": "source_only",
+  "front brake line": "red",
+  rearset: "red",
+  rearsets: "red",
+  "rear set": "red",
+  "right rearset": "red",
+  "left rearset": "red",
+  "brake pedal": "red",
+  "foot peg": "yellow",
+  "exhaust hanger": "yellow",
+  "frame slider": "green",
+  "case cover": "red",
+  "fairing bracket": "yellow",
+  "radiator clearance": "red",
+  "clutch lever": "red",
+  "shift rod": "red",
+  "toe peg": "yellow",
+  "stator cover": "red",
+  "front wheel": "red",
+  "brake rotors": "red",
+  forks: "red",
+  "clip ons": "red",
+  "brake lines": "red",
+  "front axle": "red",
+  "fairing stay": "yellow",
+  radiator: "red",
+  "radiator cap": "yellow",
+  "hose clamp": "yellow",
+  "coolant overflow": "green",
+  "fan clearance": "yellow",
+};
+
 const redCategories = [
   "brake",
   "caliper",
@@ -45,13 +84,16 @@ const redCategories = [
   "axle",
   "triple",
   "frame",
-  "rearset plate",
+  "rearset",
 ];
 
 const yellowCategories = ["bracket", "spacer", "fairing", "stay", "reservoir"];
 
 export function inferSafetyCategory(value: string): SafetyCategory {
-  const normalized = value.toLowerCase();
+  const normalized = value.toLowerCase().trim();
+
+  const exact = KNOWN_PART_SAFETY[normalized];
+  if (exact) return exact;
 
   if (redCategories.some((term) => normalized.includes(term))) {
     return normalized.includes("master") || normalized.includes("caliper")

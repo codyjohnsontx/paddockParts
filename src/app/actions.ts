@@ -3,55 +3,95 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import type { AvailabilityStatus, Side, SparePart } from "@/lib/types";
+import { inferSafetyCategory } from "@/lib/safety";
+import { spareFromRow, type Row } from "@/lib/data/mappers";
 
-const partSchema = z.object({
-  name: z.string().min(2),
-  category: z.string().min(2),
-  brand: z.string().optional(),
-  side: z.string().default("universal"),
-  tags: z.string().optional(),
+// ─────────────────────────────────────────────────────────────
+// Result shape every action returns. The UI never crashes on an
+// action — it gets `{ ok, message }` and decides what to render.
+// ─────────────────────────────────────────────────────────────
+export type ActionResult = { ok: boolean; message: string; persisted?: boolean; spare?: SparePart };
+
+// ─────────────────────────────────────────────────────────────
+// addSpareFromDraft — used by ScreenAddSpare.
+// If Supabase env is missing or the user isn't signed in, returns
+// ok=true with persisted=false so the client can still hold the
+// new spare in local state without showing an error.
+// ─────────────────────────────────────────────────────────────
+const sideSchema = z.enum(["left", "right", "front", "rear", "universal", "unknown"]);
+const availabilitySchema = z.enum(["lend", "sell", "trade", "emergency_only", "private"]);
+
+const newSpareSchema = z.object({
+  // Trim first so whitespace-only strings fail the length check.
+  name: z.string().trim().min(2, "Name needs 2+ characters"),
+  category: z.string().trim().min(2, "Category needs 2+ characters"),
+  brand: z.string().default(""),
+  partNumber: z.string().optional(),
+  side: sideSchema.default("universal"),
+  condition: z.string().default(""),
+  quantity: z.number().int().min(1).default(1),
+  families: z.array(z.string()).default([]),
+  availability: availabilitySchema.default("emergency_only"),
+  notes: z.string().default(""),
+  eventId: z.string().optional(),
 });
 
-export async function addSparePart(formData: FormData) {
-  const parsed = partSchema.safeParse(Object.fromEntries(formData));
+export type NewSpareInput = z.infer<typeof newSpareSchema>;
 
+export async function addSpareFromDraft(input: NewSpareInput): Promise<ActionResult> {
+  const parsed = newSpareSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, message: "Add a part name and category." };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Invalid spare." };
   }
+  const draft = parsed.data;
 
   const supabase = await createClient();
-
   if (!supabase) {
-    return {
-      ok: false,
-      message: "Supabase env vars are not set. The local demo UI remains available.",
-    };
+    return { ok: true, message: "Saved locally (Supabase not configured).", persisted: false };
   }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) {
-    return { ok: false, message: "Sign in before adding inventory." };
+    return { ok: true, message: "Saved locally (sign in to persist).", persisted: false };
   }
 
-  const { error } = await supabase.from("spare_parts").insert({
+  const visibility: "public_at_event" | "private" =
+    draft.availability === "private" ? "private" : "public_at_event";
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const ownerName = profile?.name ? String(profile.name) : user.email ?? "Rider";
+
+  const { data, error } = await supabase.from("spare_parts").insert({
     user_id: user.id,
-    name: parsed.data.name,
-    category: parsed.data.category,
-    brand: parsed.data.brand ?? "",
-    side: parsed.data.side,
-    compatibility_tags: parsed.data.tags
-      ?.split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean),
-  });
+    name: draft.name.trim(),
+    category: draft.category.trim(),
+    brand: draft.brand.trim(),
+    part_number: draft.partNumber?.trim() || null,
+    quantity: draft.quantity,
+    condition: draft.condition.trim(),
+    side: draft.side as Side,
+    compatibility_tags: draft.families,
+    availability_status: draft.availability as AvailabilityStatus,
+    notes: draft.notes.trim(),
+    safety_category: inferSafetyCategory(draft.category || draft.name),
+    visibility,
+    visible_at_events: visibility === "public_at_event" && draft.eventId ? [draft.eventId] : [],
+  }).select("*").single();
 
-  if (error) {
-    return { ok: false, message: error.message };
-  }
+  if (error) return { ok: false, message: error.message };
 
   revalidatePath("/");
-  return { ok: true, message: "Spare added." };
+  return {
+    ok: true,
+    message: "Spare added.",
+    persisted: true,
+    spare: spareFromRow(data as Row, ownerName),
+  };
 }

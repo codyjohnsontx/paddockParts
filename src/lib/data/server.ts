@@ -15,8 +15,10 @@ import type {
   RequestResponse,
   SparePart,
   TrackEvent,
+  User,
 } from "@/lib/types";
 import {
+  currentUser as demoCurrentUser,
   demoBikes,
   demoCheckIns,
   demoEvent,
@@ -156,6 +158,9 @@ function responseFromRow(r: Row, responderName: string): RequestResponse {
 export async function getInitialPayload() {
   const supabase = await createClient();
   if (!supabase) return demoPayload();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // Phase 1: bikes / installed / spares / active event run in parallel.
   // We need the active event id before we can scope check-ins / requests.
@@ -218,6 +223,7 @@ export async function getInitialPayload() {
       ...(sparesRes.data ?? []).map((r) => r.user_id as string),
       ...(checkInsRes.data ?? []).map((r) => r.user_id as string),
       ...(responsesRes.data ?? []).map((r) => r.responder_user_id as string),
+      ...(user ? [user.id] : []),
     ]),
   );
   const namesById = new Map<string, string>();
@@ -229,11 +235,19 @@ export async function getInitialPayload() {
     for (const p of profiles ?? []) namesById.set(String(p.id), String(p.name));
   }
   const nameFor = (id: string) => namesById.get(id) ?? "Rider";
+  const currentUser: User = user
+    ? {
+        id: user.id,
+        name: namesById.get(user.id) ?? user.email ?? "Rider",
+        email: user.email ?? "",
+      }
+    : demoCurrentUser;
 
   const event = eventsRes.data?.[0] ? eventFromRow(eventsRes.data[0]) : demoEvent;
 
   return {
     source: "supabase" as const,
+    currentUser,
     event,
     bikes: (bikesRes.data ?? []).map(bikeFromRow),
     installed: (installedRes.data ?? []).map(installedFromRow),
@@ -251,6 +265,7 @@ export async function getInitialPayload() {
 function demoPayload() {
   return {
     source: "demo" as const,
+    currentUser: demoCurrentUser,
     event: demoEvent,
     bikes: demoBikes,
     installed: demoInstalledParts,

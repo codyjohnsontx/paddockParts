@@ -3,14 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import type { AvailabilityStatus, Side } from "@/lib/types";
+import type { AvailabilityStatus, Side, SparePart } from "@/lib/types";
 import { inferSafetyCategory } from "@/lib/safety";
 
 // ─────────────────────────────────────────────────────────────
 // Result shape every action returns. The UI never crashes on an
 // action — it gets `{ ok, message }` and decides what to render.
 // ─────────────────────────────────────────────────────────────
-export type ActionResult = { ok: boolean; message: string; persisted?: boolean };
+export type ActionResult = { ok: boolean; message: string; persisted?: boolean; spare?: SparePart };
 
 // ─────────────────────────────────────────────────────────────
 // addSpareFromDraft — used by ScreenAddSpare.
@@ -38,6 +38,33 @@ const newSpareSchema = z.object({
 
 export type NewSpareInput = z.infer<typeof newSpareSchema>;
 
+type Row = Record<string, unknown>;
+
+function spareFromRow(r: Row, ownerName: string): SparePart {
+  return {
+    id: String(r.id),
+    userId: String(r.user_id),
+    ownerName,
+    name: String(r.name),
+    category: String(r.category),
+    brand: String(r.brand ?? ""),
+    partNumber: r.part_number ? String(r.part_number) : undefined,
+    quantity: Number(r.quantity ?? 1),
+    condition: String(r.condition ?? ""),
+    side: (r.side as SparePart["side"]) ?? "universal",
+    compatibilityTags: (r.compatibility_tags as string[]) ?? [],
+    availabilityStatus: (r.availability_status as SparePart["availabilityStatus"]) ?? "private",
+    price: r.price != null ? Number(r.price) : undefined,
+    depositRequired: r.deposit_required ? String(r.deposit_required) : undefined,
+    notes: String(r.notes ?? ""),
+    photos: (r.photos as string[]) ?? [],
+    safetyCategory: (r.safety_category as SparePart["safetyCategory"]) ?? "green",
+    visibility: (r.visibility as SparePart["visibility"]) ?? "private",
+    visibleAtEvents: (r.visible_at_events as string[]) ?? [],
+    fitmentAttributes: (r.fitment_attributes as Record<string, string | number | boolean>) ?? {},
+  };
+}
+
 export async function addSpareFromDraft(input: NewSpareInput): Promise<ActionResult> {
   const parsed = newSpareSchema.safeParse(input);
   if (!parsed.success) {
@@ -60,7 +87,14 @@ export async function addSpareFromDraft(input: NewSpareInput): Promise<ActionRes
   const visibility: "public_at_event" | "private" =
     draft.availability === "private" ? "private" : "public_at_event";
 
-  const { error } = await supabase.from("spare_parts").insert({
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", user.id)
+    .maybeSingle();
+  const ownerName = profile?.name ? String(profile.name) : user.email ?? "Rider";
+
+  const { data, error } = await supabase.from("spare_parts").insert({
     user_id: user.id,
     name: draft.name.trim(),
     category: draft.category.trim(),
@@ -75,10 +109,15 @@ export async function addSpareFromDraft(input: NewSpareInput): Promise<ActionRes
     safety_category: inferSafetyCategory(draft.category || draft.name),
     visibility,
     visible_at_events: visibility === "public_at_event" && draft.eventId ? [draft.eventId] : [],
-  });
+  }).select("*").single();
 
   if (error) return { ok: false, message: error.message };
 
   revalidatePath("/");
-  return { ok: true, message: "Spare added.", persisted: true };
+  return {
+    ok: true,
+    message: "Spare added.",
+    persisted: true,
+    spare: spareFromRow(data as Row, ownerName),
+  };
 }

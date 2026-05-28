@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { currentUser, inspectionChecklists } from "@/lib/data";
+import { inspectionChecklists } from "@/lib/data";
 import { DEMO_SESSION } from "@/lib/demo-session";
 import { Phone } from "@/components/shell";
 import type { Tab } from "@/components/ui";
@@ -14,6 +14,7 @@ import type {
   SparePart,
   TrackEvent,
   Urgency,
+  User,
 } from "@/lib/types";
 import { inferSafetyCategory } from "@/lib/safety";
 import { bikeLabelOf } from "@/lib/demo-helpers";
@@ -54,6 +55,7 @@ type EmergencyView =
   | { kind: "post" };
 
 export type InitialData = {
+  currentUser: User;
   event: TrackEvent;
   bikes: Bike[];
   installed: InstalledPart[];
@@ -89,7 +91,7 @@ function titleFromCrash(zones: string[], parts: string[]): string {
 }
 
 export default function HomeClient({ initial }: { initial: InitialData }) {
-  const { event } = initial;
+  const { currentUser, event } = initial;
 
   // ────────── Data (seeded from initial server payload) ──────────
   const [bikes, setBikes] = useState<Bike[]>(initial.bikes);
@@ -222,10 +224,11 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
   // Optimistic add: update local state immediately, fire-and-await the server
   // action so the Save button reflects in-flight state via isSavingSpare.
   function addSpare(draft: NewSpareDraft, onDone: () => void) {
+    const optimisticId = makeId("sp");
     const newSpare: SparePart = {
-      id: makeId("sp"),
-      userId: currentUser.id,
-      ownerName: currentUser.name,
+      id: optimisticId,
+      userId: optimisticId,
+      ownerName: "Saving...",
       name: draft.name.trim(),
       category: draft.category.trim(),
       brand: draft.brand.trim(),
@@ -243,19 +246,27 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
     };
     setSpares((rs) => [newSpare, ...rs]);
     startSavingSpare(async () => {
-      const result = await addSpareFromDraft({
-        name: draft.name,
-        category: draft.category,
-        brand: draft.brand,
-        partNumber: draft.partNumber || undefined,
-        side: draft.side,
-        condition: draft.condition,
-        quantity: draft.quantity,
-        families: draft.families,
-        availability: draft.availability,
-        notes: draft.notes,
-        eventId: event.id,
-      });
+      let result;
+      try {
+        result = await addSpareFromDraft({
+          name: draft.name,
+          category: draft.category,
+          brand: draft.brand,
+          partNumber: draft.partNumber || undefined,
+          side: draft.side,
+          condition: draft.condition,
+          quantity: draft.quantity,
+          families: draft.families,
+          availability: draft.availability,
+          notes: draft.notes,
+          eventId: event.id,
+        });
+      } catch (error) {
+        setSpares((rs) => rs.filter((s) => s.id !== newSpare.id));
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("addSpareFromDraft threw:", message, error);
+        return;
+      }
       // ok=true with persisted=false is a deliberate local-only fallback
       // (no Supabase env / unauthenticated) — keep the optimistic row.
       if (!result.ok) {
@@ -264,6 +275,9 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
         // so it shows in the dev console / server logs.
         console.error("addSpareFromDraft failed:", result.message);
         return;
+      }
+      if (result.spare) {
+        setSpares((rs) => rs.map((s) => (s.id === newSpare.id ? result.spare! : s)));
       }
       onDone();
     });

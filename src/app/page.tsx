@@ -9,6 +9,7 @@ export default async function Page() {
   return (
     <HomeClient
       initial={{
+        currentUser: payload.currentUser,
         event: payload.event,
         bikes: payload.bikes,
         installed: payload.installed,

@@ -227,7 +227,7 @@ export default function HomeClient({ initial }: { initial: InitialData }) {
     const optimisticId = makeId("sp");
     const newSpare: SparePart = {
       id: optimisticId,
-      userId: optimisticId,
+      userId: currentUser.id,
       ownerName: "Saving...",
       name: draft.name.trim(),
       category: draft.category.trim(),

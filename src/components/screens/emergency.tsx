@@ -101,7 +101,7 @@ export function ScreenEmergencyHome({
       </div>
 
       <SectionTitle title="Faster path" />
-      <div className="flex flex-col gap-2.5 px-4">
+      <div className="grid gap-2.5 px-4 md:grid-cols-3">
         <QuickAction
           Icon={IconBolt}
           label="Post request without flow"
@@ -121,7 +121,7 @@ export function ScreenEmergencyHome({
       </div>
 
       <SectionTitle title="Help others now" />
-      <div className="flex flex-col gap-2.5 px-4">
+      <div className="grid gap-2.5 px-4 md:grid-cols-2 xl:grid-cols-3">
         {recentRequests.slice(0, 2).map((r) => (
           <RequestCard
             key={r.id}
@@ -209,7 +209,7 @@ export function ScreenZonePicker({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 px-4 pt-3.5">
+      <div className="grid grid-cols-2 gap-2.5 px-4 pt-3.5 md:grid-cols-3 xl:grid-cols-5">
         {ZONE_LABELS.map((z) => {
           const on = selected.includes(z.key);
           return (
@@ -451,7 +451,7 @@ export function ScreenChecklist({
       </div>
 
       <SectionTitle title={`Common ${zone} parts`} action={`${count} selected`} />
-      <div className="flex flex-col gap-1.5 px-4">
+      <div className="grid gap-1.5 px-4 md:grid-cols-2">
         {parts.map((p) => {
           const cat = CHECK_GROUP[p] ?? "PART";
           const sev = inferSafetyCategory(p);
@@ -495,7 +495,7 @@ export function ScreenChecklist({
 
       <div className="h-4" />
 
-      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
+      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 md:max-w-md">
         <button
           type="button"
           onClick={onContinue}
@@ -580,7 +580,7 @@ export function ScreenRecovery({
       />
 
       <div className="px-4">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 md:max-w-xl">
           {tally.red > 0 && <Tally tone="red" n={tally.red} label="Critical" />}
           {tally.yellow > 0 && <Tally tone="yellow" n={tally.yellow} label="Temp OK" />}
           {tally.green > 0 && <Tally tone="green" n={tally.green} label="Non-crit" />}
@@ -626,7 +626,7 @@ export function ScreenRecovery({
 
       <div className="h-2" />
 
-      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
+      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 md:max-w-md">
         <button
           type="button"
           onClick={onPost}
@@ -686,7 +686,7 @@ function PartGroup({
           {copy.short}
         </div>
       </div>
-      <div className="flex flex-col gap-2.5 px-4 pt-2">{children}</div>
+      <div className="grid gap-2.5 px-4 pt-2 md:grid-cols-2 xl:grid-cols-3">{children}</div>
     </>
   );
 }
@@ -729,7 +729,7 @@ export function ScreenPostRequest({
         subtitle={`${ridersHere} riders here`}
       />
 
-      <div className="px-4">
+      <div className="px-4 md:max-w-3xl">
         <div className="pp-card p-3">
           <div className="pp-eyebrow">AUTO-FILLED FROM CRASH FLOW</div>
           <div className="pp-h3 mt-2 capitalize">{partName || "—"}</div>
@@ -748,14 +748,14 @@ export function ScreenPostRequest({
       </div>
 
       <SectionTitle title="Urgency" />
-      <div className="flex gap-1.5 px-4">
+      <div className="flex gap-1.5 px-4 md:max-w-2xl">
         <UrgencyChip on={urgency === "session_critical"} label="SESSION CRITICAL" sub="next 30m" onClick={() => setUrgency("session_critical")} />
         <UrgencyChip on={urgency === "today"} label="TODAY" sub="event" onClick={() => setUrgency("today")} />
         <UrgencyChip on={urgency === "low"} label="LOW" sub="anytime" onClick={() => setUrgency("low")} />
       </div>
 
       <SectionTitle title="Offer" />
-      <div className="flex flex-wrap gap-1.5 px-4">
+      <div className="flex flex-wrap gap-1.5 px-4 md:max-w-2xl">
         {(["buy", "borrow", "trade", "help"] as const).map((o) => (
           <Chip key={o} mono on={offerType === o} dim={offerType !== o} onClick={() => setOfferType(o)}>
             {o.toUpperCase()}
@@ -764,7 +764,7 @@ export function ScreenPostRequest({
       </div>
 
       <SectionTitle title="Notes (optional)" />
-      <div className="px-4">
+      <div className="px-4 md:max-w-3xl">
         <textarea
           className="pp-textarea"
           rows={3}
@@ -776,7 +776,7 @@ export function ScreenPostRequest({
 
       <div className="h-3" />
 
-      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
+      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 md:max-w-md">
         <button type="button" onClick={onPost} className="pp-btn pp-btn-primary pp-btn-lg w-full">
           Post — alert {ridersHere} riders
         </button>

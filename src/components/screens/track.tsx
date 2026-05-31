@@ -69,72 +69,76 @@ export function ScreenTrackHome({
         right={<BellBtn />}
       />
 
-      <div className="px-4 mt-0.5">
-        <div className="pp-card overflow-hidden p-0">
-          <HazardTape />
-          <div className="px-4 pb-4 pt-3.5">
-            <div className="flex items-baseline justify-between">
-              <div className="pp-eyebrow" style={{ color: "var(--color-pp-green)" }}>
-                ● CHECKED IN · {paddockLocation ?? "P—"}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)] lg:items-start lg:gap-5">
+        <div>
+          <div className="px-4 mt-0.5">
+            <div className="pp-card overflow-hidden p-0">
+              <HazardTape />
+              <div className="px-4 pb-4 pt-3.5">
+                <div className="flex items-baseline justify-between">
+                  <div className="pp-eyebrow" style={{ color: "var(--color-pp-green)" }}>
+                    ● CHECKED IN · {paddockLocation ?? "P—"}
+                  </div>
+                  <div className="pp-eyebrow">{eventDayLabel(event, DEMO_NOW)}</div>
+                </div>
+                <div className="pp-h1 mt-2 leading-[1.05] lg:text-[34px]">{event.trackName}</div>
+                <div className="pp-meta mt-2 flex flex-wrap gap-2.5">
+                  <span>{event.organizer}</span>
+                  <span>·</span>
+                  <span>{formatEventDateRange(event)}</span>
+                </div>
+                <div className="mt-3.5 grid grid-cols-3 gap-2">
+                  <Stat n={ridersHere} label="Riders" />
+                  <Stat n={sparesCount} label="Spares" />
+                  <Stat n={openRequestsCount} label="Open" tone="accent" />
+                </div>
+                <div className="mt-3.5 flex gap-2">
+                  <button type="button" className="pp-btn pp-btn-ghost pp-btn-sm flex-1">
+                    Paddock map
+                  </button>
+                  <button type="button" className="pp-btn pp-btn-ghost pp-btn-sm flex-1">
+                    Sessions
+                  </button>
+                  <button type="button" aria-label="More event actions" className="pp-btn pp-btn-ghost pp-btn-sm" style={{ width: 44, padding: 0 }}>
+                    ⋯
+                  </button>
+                </div>
               </div>
-              <div className="pp-eyebrow">{eventDayLabel(event, DEMO_NOW)}</div>
-            </div>
-            <div className="pp-h1 mt-2 leading-[1.05]">{event.trackName}</div>
-            <div className="pp-meta mt-2 flex flex-wrap gap-2.5">
-              <span>{event.organizer}</span>
-              <span>·</span>
-              <span>{formatEventDateRange(event)}</span>
-            </div>
-            <div className="mt-3.5 grid grid-cols-3 gap-2">
-              <Stat n={ridersHere} label="Riders" />
-              <Stat n={sparesCount} label="Spares" />
-              <Stat n={openRequestsCount} label="Open" tone="accent" />
-            </div>
-            <div className="mt-3.5 flex gap-2">
-              <button type="button" className="pp-btn pp-btn-ghost pp-btn-sm flex-1">
-                Paddock map
-              </button>
-              <button type="button" className="pp-btn pp-btn-ghost pp-btn-sm flex-1">
-                Sessions
-              </button>
-              <button type="button" aria-label="More event actions" className="pp-btn pp-btn-ghost pp-btn-sm" style={{ width: 44, padding: 0 }}>
-                ⋯
-              </button>
             </div>
           </div>
+          <SectionTitle title="Vendors & wrench help" />
+          <div className="flex flex-wrap gap-2 px-4">
+            <VendorChip name="ApexMoto" tag="parts · tires" />
+            <VendorChip name="Bend's Garage" tag="suspension" />
+            <VendorChip name="Heru Fab" tag="welding · tig" />
+            <VendorChip name="Jay Cole" tag="wrench" />
+          </div>
         </div>
-      </div>
 
-      <SectionTitle title="Urgent at this event" action={`See all ${openRequestsCount}`} onAction={onOpenFeed} />
-      <div className="flex flex-col gap-2.5 px-4">
-        {urgent.map((r) => (
-          <RequestCard
-            key={r.id}
-            request={r}
-            bikeName={bikeLabelOf(r.userId)}
-            ownerName={ownerNameOf(r.userId)}
-            paddock={paddockFromCheckIns(checkIns, r.userId)}
-            responses={(responsesByRequest.get(r.id) ?? []).length}
-            onClick={() => onOpenRequest(r.id)}
-          />
-        ))}
-      </div>
-
-      <SectionTitle title="Vendors & wrench help" />
-      <div className="flex flex-wrap gap-2 px-4">
-        <VendorChip name="ApexMoto" tag="parts · tires" />
-        <VendorChip name="Bend's Garage" tag="suspension" />
-        <VendorChip name="Heru Fab" tag="welding · tig" />
-        <VendorChip name="Jay Cole" tag="wrench" />
-      </div>
-
-      <SectionTitle title="Paddock notes" />
-      <div className="px-4">
-        <div className="pp-card p-3.5">
-          <div className="pp-body">{event.notes}</div>
-          <div className="pp-meta mt-2.5 flex items-center gap-2">
-            <Avatar name="TZ" />
-            <span>Posted by control — 11:02</span>
+        <div>
+          <SectionTitle title="Urgent at this event" action={`See all ${openRequestsCount}`} onAction={onOpenFeed} />
+          <div className="flex flex-col gap-2.5 px-4">
+            {urgent.map((r) => (
+              <RequestCard
+                key={r.id}
+                request={r}
+                bikeName={bikeLabelOf(r.userId)}
+                ownerName={ownerNameOf(r.userId)}
+                paddock={paddockFromCheckIns(checkIns, r.userId)}
+                responses={(responsesByRequest.get(r.id) ?? []).length}
+                onClick={() => onOpenRequest(r.id)}
+              />
+            ))}
+          </div>
+          <SectionTitle title="Paddock notes" />
+          <div className="px-4">
+            <div className="pp-card p-3.5">
+              <div className="pp-body">{event.notes}</div>
+              <div className="pp-meta mt-2.5 flex items-center gap-2">
+                <Avatar name="TZ" />
+                <span>Posted by control — 11:02</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -234,7 +238,7 @@ export function ScreenRequestsFeed({
         </Chip>
       </div>
 
-      <div className="flex flex-col gap-2.5 px-4 pt-3">
+      <div className="grid gap-2.5 px-4 pt-3 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((r) => (
           <RequestCard
             key={r.id}
@@ -291,7 +295,8 @@ export function ScreenRequestDetail({
         right={<MoreBtn />}
       />
 
-      <div className="px-4">
+      <div className="px-4 xl:grid xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start xl:gap-5">
+        <div>
         <div className="flex items-center justify-between">
           {urgencyPill}
           <div className="pp-tiny pp-mono">
@@ -351,13 +356,15 @@ export function ScreenRequestDetail({
             <SafetyCallout level={safetyLevel(sev)} title={copy.label} body={copy.detail} />
           );
         })()}
-      </div>
-
-      <SectionTitle title={`Replies (${responses.length})`} />
-      <div className="flex flex-col gap-2.5 px-4">
-        {responses.map((r) => (
-          <Reply key={r.id} response={r} />
-        ))}
+        </div>
+        <div className="mt-4 xl:mt-0">
+          <SectionTitle title={`Replies (${responses.length})`} />
+          <div className="flex flex-col gap-2.5">
+            {responses.map((r) => (
+              <Reply key={r.id} response={r} />
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Response action bar */}

@@ -1,13 +1,13 @@
-// Paddock Parts — Phone shell. Mobile container with fixed tab bar.
+// Paddock Parts — responsive app shell. Mobile bottom tabs, desktop sidebar.
 
 "use client";
 
 import type { ReactNode } from "react";
-import { TabBar, type Tab } from "./ui";
+import { SideNav, TabBar, type Tab } from "./ui";
 
 /**
- * Phone — fixed-width column with sticky bottom tab bar.
- * On mobile this is the whole viewport; on desktop it's a centered phone-sized column.
+ * Phone keeps the existing public component name while rendering an adaptive
+ * shell: mobile gets the original tab bar, desktop gets a wider workspace.
  */
 export function Phone({
   children,
@@ -21,15 +21,22 @@ export function Phone({
   onTab: (t: Tab) => void;
 }) {
   return (
-    <main className="min-h-screen bg-bg text-text">
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col border-x border-border bg-bg">
-        <div className="pp-scroll flex-1 overflow-y-auto pb-4">{children}</div>
-        {footer && (
-          <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 backdrop-blur">
-            {footer}
+    <main className="min-h-screen bg-bg text-text md:bg-[#07080a]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1440px] md:px-5">
+        <SideNav active={tab} onChange={onTab} />
+        <div className="flex min-h-screen w-full min-w-0 flex-col border-x border-border bg-bg md:my-5 md:min-h-[calc(100vh-40px)] md:overflow-hidden md:rounded-2xl md:border">
+          <div className="pp-scroll flex-1 overflow-y-auto pb-4 md:px-6 md:py-5">
+            {children}
           </div>
-        )}
-        <TabBar active={tab} onChange={onTab} />
+          {footer && (
+            <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 backdrop-blur">
+              {footer}
+            </div>
+          )}
+          <div className="md:hidden">
+            <TabBar active={tab} onChange={onTab} />
+          </div>
+        </div>
       </div>
     </main>
   );

@@ -77,7 +77,7 @@ export function ScreenGarageList({
         right={<PlusBtn onClick={onAddBike} />}
       />
 
-      <div className="flex flex-col gap-2.5 px-4 pt-1">
+      <div className="grid gap-2.5 px-4 pt-1 md:grid-cols-2 xl:grid-cols-3">
         {bikes.map((b) => {
           const installed = installedByBike.get(b.id) ?? [];
           const isPrimary = b.id === primaryBikeId;
@@ -103,7 +103,7 @@ export function ScreenGarageList({
           );
         })}
 
-        <button type="button" onClick={onAddBike} className="pp-btn pp-btn-outline w-full mt-1">
+        <button type="button" onClick={onAddBike} className="pp-btn pp-btn-outline w-full mt-1 md:min-h-[204px]">
           <IconPlus size={18} /> Add bike
         </button>
       </div>
@@ -111,7 +111,7 @@ export function ScreenGarageList({
       {recentParts.length > 0 && (
         <>
           <SectionTitle title="Recently added parts" />
-          <div className="flex flex-col gap-2 px-4">
+          <div className="grid gap-2 px-4 md:grid-cols-2 xl:grid-cols-3">
             {recentParts.slice(0, 3).map((p) => (
               <InstalledRow key={p.id} part={p} />
             ))}
@@ -144,7 +144,7 @@ function BikeListCard({
   return (
     <button type="button" onClick={onClick} className="pp-card block w-full overflow-hidden p-0 text-left">
       <div className="relative">
-        <ImgPH h={120} label={`${year} ${model}`} />
+        <ImgPH h={120} label={`${year} ${model}`} className="lg:h-[150px]" />
         {accent && (
           <div
             className="absolute left-2.5 top-2.5 rounded font-bold tracking-[0.08em] pp-mono"
@@ -201,27 +201,27 @@ export function ScreenBikeProfile({
         right={<MoreBtn />}
       />
 
-      <div className="px-4">
-        <ImgPH h={180} label={`${bike.year} ${bike.make} ${bike.model}`} />
-      </div>
+      <div className="px-4 lg:grid lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1fr)] lg:gap-5">
+        <ImgPH h={180} label={`${bike.year} ${bike.make} ${bike.model}`} className="lg:h-[280px]" />
 
-      <div className="px-4 pt-3.5">
-        <div className="pp-eyebrow">
-          {bike.useType === "track" ? "PRIMARY · TRACK" : bike.useType.toUpperCase()}
-        </div>
-        <div className="pp-h1 mt-1.5">&ldquo;{bike.nickname}&rdquo;</div>
-        <div className="pp-meta mt-1">
-          {bike.year} {bike.make} {bike.model}
-        </div>
+        <div className="pt-3.5 lg:pt-0">
+          <div className="pp-eyebrow">
+            {bike.useType === "track" ? "PRIMARY · TRACK" : bike.useType.toUpperCase()}
+          </div>
+          <div className="pp-h1 mt-1.5 lg:text-[36px]">&ldquo;{bike.nickname}&rdquo;</div>
+          <div className="pp-meta mt-1">
+            {bike.year} {bike.make} {bike.model}
+          </div>
 
-        <div className="mt-3.5 grid grid-cols-2 gap-2">
-          <Stat n={installed.length} label="Installed" />
-          <Stat n={donorFamilies.length} label="Donor families" />
+          <div className="mt-3.5 grid grid-cols-2 gap-2">
+            <Stat n={installed.length} label="Installed" />
+            <Stat n={donorFamilies.length} label="Donor families" />
+          </div>
         </div>
       </div>
 
       <SectionTitle title="Installed parts" />
-      <div className="flex flex-col gap-2 px-4">
+      <div className="grid gap-2 px-4 md:grid-cols-2 xl:grid-cols-3">
         {installed.map((p) => (
           <InstalledRow key={p.id} part={p} />
         ))}
@@ -383,7 +383,7 @@ export function ScreenSparesList({
         ))}
       </div>
 
-      <div className="flex flex-col gap-2 px-4 pt-3">
+      <div className="grid gap-2 px-4 pt-3 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((s) => (
           <SpareRow key={s.id} spare={s} />
         ))}
@@ -475,7 +475,7 @@ export function ScreenAddSpare({
         </button>
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 px-4">
+      <div className="mt-3 grid gap-2 px-4 md:grid-cols-2 xl:grid-cols-3">
         <InputRow label="PART NAME" value={draft.name} onChange={(v) => update("name", v)} placeholder="e.g. Woodcraft clip-on tube" />
         <InputRow label="P/N (OPTIONAL)" value={draft.partNumber} onChange={(v) => update("partNumber", v)} mono placeholder="WC-3PC-50L" />
         <InputRow label="CATEGORY" value={draft.category} onChange={(v) => update("category", v)} placeholder="clip on, brake lever, ..." />
@@ -521,7 +521,7 @@ export function ScreenAddSpare({
       </div>
 
       <SectionTitle title="Notes" />
-      <div className="px-4">
+      <div className="px-4 md:max-w-3xl">
         <textarea
           className="pp-textarea"
           rows={2}
@@ -533,7 +533,7 @@ export function ScreenAddSpare({
       </div>
 
       <SectionTitle title="Safety category" />
-      <div className="px-4">
+      <div className="px-4 md:max-w-3xl">
         <div className="pp-card p-3">
           <div className="flex items-center gap-2">
             <SafetyBadge level={safetyLevel(safety)}>
@@ -550,7 +550,7 @@ export function ScreenAddSpare({
 
       <div className="h-3" />
 
-      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
+      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 md:max-w-md">
         <button
           type="button"
           onClick={() => canSave && !saving && onSave(draft)}
@@ -680,7 +680,7 @@ export function ScreenAddBike({
         subtitle="Year, make, model — nickname optional"
       />
 
-      <div className="mt-2 flex flex-col gap-2 px-4">
+      <div className="mt-2 grid gap-2 px-4 md:grid-cols-2 xl:grid-cols-3">
         <InputRow
           label="YEAR"
           value={String(draft.year)}
@@ -699,7 +699,7 @@ export function ScreenAddBike({
       </div>
 
       <SectionTitle title="Notes" />
-      <div className="px-4">
+      <div className="px-4 md:max-w-3xl">
         <textarea
           className="pp-textarea"
           rows={3}
@@ -712,7 +712,7 @@ export function ScreenAddBike({
 
       <div className="h-3" />
 
-      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5">
+      <div className="border-t border-border bg-bg/95 px-3.5 pb-3 pt-2.5 md:max-w-md">
         <button
           type="button"
           onClick={() => canSave && onSave(draft)}

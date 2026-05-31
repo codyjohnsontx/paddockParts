@@ -23,7 +23,7 @@ import { IconGarage, IconSpares, IconTrack, IconEmergency } from "./icons";
 
 export type Tab = "garage" | "spares" | "track" | "emergency";
 
-const TAB_DEFS: { key: Tab; label: string; Icon: typeof IconGarage }[] = [
+export const TAB_DEFS: { key: Tab; label: string; Icon: typeof IconGarage }[] = [
   { key: "garage", label: "Garage", Icon: IconGarage },
   { key: "spares", label: "Spares", Icon: IconSpares },
   { key: "track", label: "Track", Icon: IconTrack },
@@ -59,6 +59,46 @@ export function TabBar({
         );
       })}
     </div>
+  );
+}
+
+export function SideNav({
+  active,
+  onChange,
+}: {
+  active: Tab;
+  onChange: (tab: Tab) => void;
+}) {
+  return (
+    <aside className="hidden min-h-screen w-56 shrink-0 border-r border-border bg-bg px-3 py-5 md:block xl:w-60">
+      <div className="px-2">
+        <div className="pp-eyebrow">Paddock Parts</div>
+        <div className="mt-1 text-[20px] font-extrabold tracking-[-0.02em]">
+          Trackside
+        </div>
+      </div>
+      <nav className="mt-6 flex flex-col gap-1.5" aria-label="Primary">
+        {TAB_DEFS.map((t) => {
+          const on = t.key === active;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => onChange(t.key)}
+              className={clsx(
+                "flex h-11 items-center gap-3 rounded-xl px-3 text-left text-[14px] font-bold transition-colors",
+                on ? "bg-surface-2 text-text" : "text-muted hover:bg-surface hover:text-text",
+                t.key === "emergency" && "text-accent",
+              )}
+              aria-current={on ? "page" : undefined}
+            >
+              <t.Icon />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
   );
 }
 

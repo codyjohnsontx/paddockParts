@@ -122,7 +122,7 @@ export function ScreenEmergencyHome({
 
       <SectionTitle title="Help others now" />
       <div className="grid gap-2.5 px-4 md:grid-cols-2 xl:grid-cols-3">
-        {recentRequests.slice(0, 2).map((r) => (
+        {recentRequests.slice(0, 3).map((r) => (
           <RequestCard
             key={r.id}
             request={r}
